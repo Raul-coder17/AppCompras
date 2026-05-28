@@ -79,6 +79,7 @@ export default function App() {
   const [totalBudget, setTotalBudget] = useState<number>(DEFAULT_BUDGET);
   const [selectedStoreFilter, setSelectedStoreFilter] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   // 1. Initial State Load from LocalStorage
   useEffect(() => {
@@ -161,11 +162,14 @@ export default function App() {
 
   // Reset shopping database completely
   const handleResetData = () => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar todos los registros de compras? Esta acción te dejará la aplicación en cero y no se puede deshacer.")) {
-      setItems([]);
-      setTotalBudget(0);
-      setSelectedStoreFilter(null);
-    }
+    setIsResetModalOpen(true);
+  };
+
+  const handleConfirmReset = () => {
+    setItems([]);
+    setTotalBudget(0);
+    setSelectedStoreFilter(null);
+    setIsResetModalOpen(false);
   };
 
   // Export List functionality
@@ -323,6 +327,39 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-100 p-6">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 h-9 w-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+                <RotateCcw className="h-4 w-4" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Restablecer aplicacion</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Esto eliminara todos los registros de compras y dejara el presupuesto en cero.
+                  Esta accion no se puede deshacer.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIsResetModalOpen(false)}
+                className="px-3.5 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmReset}
+                className="px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 transition"
+              >
+                Si, restablecer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
