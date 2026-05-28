@@ -1,0 +1,47 @@
+💻 Guía detallada: Cómo instalar tu Aplicación en un Teléfono usando VSCode
+Para llevar la aplicación de tu computadora a cualquier teléfono móvil (Android o iPhone) utilizando VSCode, tienes dos métodos muy sencillos. Sigue estas instrucciones paso a paso:
+Paso 1: Descargar y Abrir el Proyecto en VSCode
+exporta tu proyecto desde el menú superior de Google AI Studio en formato ZIP o sincronízalo con tu GitHub.
+Descomprime el archivo en tu computadora.
+Abre Visual Studio Code, ve al menú Archivo > Abrir carpeta... y selecciona la carpeta de tu proyecto.
+Abre la terminal integrada de VSCode (teclas Ctrl + ñ o Cmd + J) e instala las librerías necesarias con el siguiente comando:
+code
+Bash
+npm install
+MÉTODO A: Probar en tu Teléfono localmente por Wi-Fi (Ideal para desarrollo rápido)
+Si deseas abrir la aplicación en tu celular sin publicarla en internet, puedes compartir la señal de tu computadora:
+Asegúrate de que tu computadora y tu teléfono estén conectados a la misma red de Wi-Fi.
+En la terminal de VSCode en tu computadora, inicia el servidor de desarrollo exponiendo tu red con el siguiente comando:
+code
+Bash
+npm run dev -- --host
+La terminal te mostrará varias direcciones. Busca la que dice Network: (por ejemplo: http://192.168.1.45:3000).
+En tu teléfono celular: Abre el navegador (Chrome en Android o Safari en iPhone) e ingresa exactamente esa dirección IP http://192.168.1.x:3000. ¡Y listo! Estarás viendo la app ejecutándose directamente desde tu VSCode.
+MÉTODO B: Publicación Gratuita de tu PWA (El método recomendado para usarla siempre offline en la calle)
+Dado que los teléfonos móviles exigen conexiones seguras (https://) para permitir la instalación permanente de aplicaciones offline, lo mejor es subir el código compilado de tu VSCode a un servidor web gratuito como Vercel o Netlify. Toma menos de 2 minutos:
+Instala la herramienta sugerida en tu terminal de VSCode:
+code
+Bash
+npm install -g vercel
+Prepara y compila el código optimizado de tu aplicación para producción:
+code
+Bash
+npm run build
+Esto generará una carpeta super optimizada llamada dist/ en tu proyecto.
+Publica tu app con un solo comando:
+code
+Bash
+vercel
+Sigue las sencillas preguntas en pantalla presionando Enter. Vercel te regalará una dirección con seguridad HTTPS gratuita de por vida (por ejemplo, https://cuentas-compras.vercel.app).
+📱 Paso Final: Instalar permanentemente en tu Teléfono
+Abre la URL definitiva en tu teléfono móvil y agrégala a tu escritorio con estas sencillas acciones de smartphone:
+En un iPhone / iPad (Safari):
+Abre el navegador Safari e introduce tu URL.
+Presiona el botón físico de Compartir (el icono de un cuadro con una flecha hacia arriba en el menú inferior).
+Desplázate hacia abajo y presiona "Añadir a la pantalla de inicio" (u Add to Home Screen).
+Pulsa en Añadir. El icono aparecerá inmediatamente en el menú de aplicaciones de tu iPhone y cargará en pantalla completa de forma offline.
+En un Teléfono Android (Chrome):
+Abre Google Chrome e introduce tu URL.
+Verás cambiar la barra de estado y aparecerá un globo flotante que dice "Añadir Cuentas Compras a pantalla de inicio". Alternativamente, puedes presionar en los tres puntos verticales de configuración de Chrome (arriba a la derecha).
+Selecciona la opción "Instalar aplicación" o "Añadir a pantalla de inicio".
+Confirma la descarga. Ahora tendrás una aplicación instalada nativamente, ligera, rápida y preparada para organizar tus finanzas en cualquier lugar sin gastar batería ni datos móviles.

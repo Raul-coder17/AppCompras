@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Cuentas Compras">
+  <rect width="512" height="512" rx="96" fill="#0F172A" />
+  <rect x="88" y="112" width="336" height="288" rx="44" fill="#0B1220" stroke="#1F2937" stroke-width="10" />
+  <path d="M160 208h192" stroke="#34D399" stroke-width="24" stroke-linecap="round" />
+  <path d="M160 272h192" stroke="#FBBF24" stroke-width="24" stroke-linecap="round" />
+  <path d="M160 336h144" stroke="#E2E8F0" stroke-width="24" stroke-linecap="round" />
+  <circle cx="336" cy="336" r="20" fill="#E2E8F0" />
+</svg>

@@ -1,0 +1,6 @@
+{
+  "name": "Gestor de Compras y Presupuesto",
+  "description": "Una aplicación web interactiva para planificar listas de compras por tienda, realizar un seguimiento de los gastos y administrar el capital disponible.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
