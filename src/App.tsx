@@ -161,9 +161,9 @@ export default function App() {
 
   // Reset shopping database completely
   const handleResetData = () => {
-    if (window.confirm("¿Estás seguro de que quieres limpiar la lista de compras y restablecer los valores demo?")) {
-      setItems(DEFAULT_ITEMS);
-      setTotalBudget(DEFAULT_BUDGET);
+    if (window.confirm("¿Estás seguro de que quieres eliminar todos los registros de compras? Esta acción te dejará la aplicación en cero y no se puede deshacer.")) {
+      setItems([]);
+      setTotalBudget(0);
       setSelectedStoreFilter(null);
     }
   };
@@ -235,7 +235,7 @@ export default function App() {
             {/* User chip */}
             <div className="hidden md:flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100 text-xs text-slate-600 font-medium">
               <User className="w-3.5 h-3.5 text-slate-400" />
-              <span>raul.ramiros07@gmail.com</span>
+              <span>Mi Perfil</span>
             </div>
 
             {/* Export CSV action button */}
