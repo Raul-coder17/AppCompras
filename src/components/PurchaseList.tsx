@@ -23,29 +23,38 @@ import {
   ListTodo,
   Info
 } from 'lucide-react';
-import { ShoppingItem, PREDEFINED_CATEGORIES } from '../types';
+import { ShoppingItem, ArchivedItem, PAYMENT_METHODS, Category } from '../types';
 
 interface PurchaseListProps {
   items: ShoppingItem[];
+  archivedItems: ArchivedItem[];
   selectedStoreFilter: string | null;
   onToggleBought: (id: string) => void;
   onDeleteItem: (id: string) => void;
   onUpdateItem: (id: string, updatedData: Partial<ShoppingItem>) => void;
+  onRestoreItem: (id: string) => void;
+  onPurgeArchivedItem: (id: string) => void;
+  categories: Category[];
 }
 
 type SortOrder = 'date-desc' | 'date-asc' | 'price-desc' | 'price-asc' | 'alpha-asc' | 'status-pending-first';
 
 export default function PurchaseList({ 
   items, 
+  archivedItems,
   selectedStoreFilter, 
   onToggleBought, 
   onDeleteItem, 
-  onUpdateItem 
+  onUpdateItem,
+  onRestoreItem,
+  onPurgeArchivedItem,
+  categories
 }: PurchaseListProps) {
   // Search & Filters State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>('status-pending-first');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
 
   // Inline Editing State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -54,6 +63,9 @@ export default function PurchaseList({
   const [editPrice, setEditPrice] = useState('');
   const [editQty, setEditQty] = useState(1);
   const [editCategory, setEditCategory] = useState('');
+  const [editPaymentMethod, setEditPaymentMethod] = useState('tarjeta');
+  const [showHistory, setShowHistory] = useState(false);
+  const [purgeTargetId, setPurgeTargetId] = useState<string | null>(null);
 
   // Start Editing Item
   const startEditing = (item: ShoppingItem) => {
@@ -63,6 +75,7 @@ export default function PurchaseList({
     setEditPrice(item.price.toString());
     setEditQty(item.quantity);
     setEditCategory(item.category);
+    setEditPaymentMethod(item.paymentMethod || 'tarjeta');
   };
 
   // Save Edit
@@ -73,7 +86,8 @@ export default function PurchaseList({
       place: editPlace.trim() || 'Cualquier lugar',
       price: isNaN(parsedPrice) ? 0 : parsedPrice,
       quantity: Math.max(1, editQty),
-      category: editCategory
+      category: editCategory,
+      paymentMethod: editPaymentMethod
     });
     setEditingId(null);
   };
@@ -87,9 +101,10 @@ export default function PurchaseList({
   const filteredItems = items.filter(item => {
     const matchesStore = !selectedStoreFilter || item.place.toLowerCase() === selectedStoreFilter.toLowerCase();
     const matchesCategory = !selectedCategory || item.category === selectedCategory;
+    const matchesPaymentMethod = !selectedPaymentMethod || item.paymentMethod === selectedPaymentMethod;
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           item.place.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStore && matchesCategory && matchesSearch;
+    return matchesStore && matchesCategory && matchesPaymentMethod && matchesSearch;
   });
 
   // 2. Sorting
@@ -124,12 +139,16 @@ export default function PurchaseList({
   const filteredTotalValue = filteredSpent + filteredPlanned;
 
   const getCategoryDetails = (id: string) => {
-    const cat = PREDEFINED_CATEGORIES.find(c => c.id === id);
+    const cat = categories.find(c => c.id === id);
     return cat || { name: 'Otros', color: '#6B7280' };
   };
 
+  const sortedArchived = [...archivedItems].sort((a, b) => {
+    return new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime();
+  });
+
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 md:p-8 shadow-sm flex flex-col h-full" id="purchase-list-container">
+    <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm flex flex-col h-full" id="purchase-list-container">
       
       {/* Title & Filter Info */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -148,7 +167,7 @@ export default function PurchaseList({
         </div>
 
         {/* Dynamic mini accounts of visible subset */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs text-slate-600 shrink-0 w-full sm:w-auto" id="list-subset-totals">
+        <div className="flex items-center gap-3 bg-slate-100/60 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-600 shrink-0 w-full sm:w-auto" id="list-subset-totals">
           <div className="flex flex-col">
             <span className="text-[10px] uppercase font-bold text-slate-400">Total en Pantalla</span>
             <span className="font-extrabold text-slate-800 text-sm">
@@ -181,7 +200,7 @@ export default function PurchaseList({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar por artículo o lugar..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-slate-800 focus:bg-white rounded-2xl text-slate-800 placeholder-slate-400 focus:outline-none transition duration-150 text-sm"
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 shadow-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-200 rounded-2xl text-slate-800 placeholder-slate-400 focus:outline-none transition duration-150 text-sm"
               id="search-purchase-input"
             />
             {searchQuery && (
@@ -202,7 +221,7 @@ export default function PurchaseList({
             <select
               value={sortOrder}
               onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-slate-800 focus:bg-white rounded-2xl text-slate-800 focus:outline-none transition duration-150 appearance-none text-sm cursor-pointer"
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 shadow-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-200 rounded-2xl text-slate-800 focus:outline-none transition duration-150 appearance-none text-sm cursor-pointer"
               id="sort-purchase-select"
             >
               <option value="status-pending-first">Pendientes primero</option>
@@ -229,7 +248,7 @@ export default function PurchaseList({
           >
             Todas Categorías
           </button>
-          {PREDEFINED_CATEGORIES.map(cat => (
+          {categories.map(cat => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id === selectedCategory ? null : cat.id)}
@@ -245,12 +264,40 @@ export default function PurchaseList({
           ))}
         </div>
 
+        {/* Payment Method Filters */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin" id="payment-filters-row">
+          <button
+            onClick={() => setSelectedPaymentMethod(null)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+              selectedPaymentMethod === null 
+                ? 'bg-slate-900 border border-slate-900 text-white' 
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
+            }`}
+          >
+            Todos los metodos
+          </button>
+          {PAYMENT_METHODS.map(method => (
+            <button
+              key={method.id}
+              onClick={() => setSelectedPaymentMethod(method.id === selectedPaymentMethod ? null : method.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 border ${
+                selectedPaymentMethod === method.id 
+                  ? 'bg-slate-800 text-white border-slate-800' 
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-100'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: method.color }}></span>
+              {method.name}
+            </button>
+          ))}
+        </div>
+
       </div>
 
       {/* Main List Rendering */}
       <div className="flex-grow overflow-y-auto max-h-[500px] pr-1.5 scrollbar-thin space-y-3" id="shopping-items-list-container">
         {sortedItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200 p-6">
+          <div className="flex flex-col items-center justify-center py-16 text-center bg-slate-100/60 rounded-3xl border border-dashed border-slate-300 p-6">
             <ShoppingBag className="w-10 h-10 text-slate-300 stroke-[1.5] mb-3" />
             <p className="text-sm text-slate-500 font-bold">No se encontraron artículos</p>
             <p className="text-xs text-slate-400 mt-1 max-w-[320px]">
@@ -263,6 +310,7 @@ export default function PurchaseList({
                 onClick={() => {
                   setSearchQuery('');
                   setSelectedCategory(null);
+                  setSelectedPaymentMethod(null);
                 }}
                 className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
               >
@@ -281,8 +329,8 @@ export default function PurchaseList({
                 key={item.id}
                 className={`p-4 md:p-5 rounded-2xl border transition-all duration-150 ${
                   item.bought 
-                    ? 'bg-slate-50/55 border-slate-100 opacity-65 hover:opacity-90' 
-                    : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-sm'
+                    ? 'bg-slate-100/70 border-slate-200 opacity-70 hover:opacity-95' 
+                    : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
                 }`}
                 id={`item-card-${item.id}`}
               >
@@ -296,7 +344,7 @@ export default function PurchaseList({
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-800 text-sm focus:outline-none"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 shadow-sm rounded-xl focus:border-slate-400 focus:ring-2 focus:ring-slate-200 text-sm focus:outline-none"
                         />
                       </div>
                       <div>
@@ -305,7 +353,7 @@ export default function PurchaseList({
                           type="text"
                           value={editPlace}
                           onChange={(e) => setEditPlace(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-800 text-sm focus:outline-none"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 shadow-sm rounded-xl focus:border-slate-400 focus:ring-2 focus:ring-slate-200 text-sm focus:outline-none"
                         />
                       </div>
                     </div>
@@ -318,7 +366,7 @@ export default function PurchaseList({
                           step="0.01"
                           value={editPrice}
                           onChange={(e) => setEditPrice(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-800 text-sm focus:outline-none"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 shadow-sm rounded-xl focus:border-slate-400 focus:ring-2 focus:ring-slate-200 text-sm focus:outline-none"
                         />
                       </div>
                       <div>
@@ -328,7 +376,7 @@ export default function PurchaseList({
                           min="1"
                           value={editQty}
                           onChange={(e) => setEditQty(Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-800 text-sm focus:outline-none text-center"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 shadow-sm rounded-xl focus:border-slate-400 focus:ring-2 focus:ring-slate-200 text-sm focus:outline-none text-center"
                         />
                       </div>
                       <div>
@@ -336,10 +384,25 @@ export default function PurchaseList({
                         <select
                           value={editCategory}
                           onChange={(e) => setEditCategory(e.target.value)}
-                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-800 text-xs focus:outline-none cursor-pointer"
+                          className="w-full px-2 py-1.5 bg-white border border-slate-300 shadow-sm rounded-xl focus:border-slate-400 focus:ring-2 focus:ring-slate-200 text-xs focus:outline-none cursor-pointer"
                         >
-                          {PREDEFINED_CATEGORIES.map(cat => (
+                          {categories.map(cat => (
                             <option key={cat.id} value={cat.id}>{cat.name.split(' / ')[0]}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Metodo de pago</label>
+                        <select
+                          value={editPaymentMethod}
+                          onChange={(e) => setEditPaymentMethod(e.target.value)}
+                          className="w-full px-2 py-1.5 bg-white border border-slate-300 shadow-sm rounded-xl focus:border-slate-400 focus:ring-2 focus:ring-slate-200 text-xs focus:outline-none cursor-pointer"
+                        >
+                          {PAYMENT_METHODS.map(method => (
+                            <option key={method.id} value={method.id}>{method.name}</option>
                           ))}
                         </select>
                       </div>
@@ -400,6 +463,9 @@ export default function PurchaseList({
                             item.bought ? 'bg-slate-200/50 text-slate-400' : 'bg-slate-100 text-slate-600'
                           }`}>
                             x{item.quantity} {item.quantity === 1 ? 'u' : 'unidades'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600">
+                            {PAYMENT_METHODS.find((method) => method.id === item.paymentMethod)?.name || 'Tarjeta'}
                           </span>
                         </div>
 
@@ -474,6 +540,113 @@ export default function PurchaseList({
           })
         )}
       </div>
+
+      {/* History Section */}
+      <div className="mt-6" id="purchase-history-section">
+        <button
+          type="button"
+          onClick={() => setShowHistory((prev) => !prev)}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-slate-200 bg-slate-100/60 text-slate-700 text-sm font-semibold"
+        >
+          <span>Historial de compras eliminadas ({archivedItems.length})</span>
+          <span className="text-xs text-slate-400">{showHistory ? 'Ocultar' : 'Ver'}</span>
+        </button>
+
+        {showHistory && (
+          <div className="mt-4 space-y-3">
+            {sortedArchived.length === 0 ? (
+              <div className="p-4 text-center text-xs text-slate-500 bg-white border border-dashed border-slate-200 rounded-2xl">
+                No hay registros en el historial.
+              </div>
+            ) : (
+              sortedArchived.map((item) => {
+                const totalItemCost = item.price * item.quantity;
+                const catInfo = getCategoryDetails(item.category);
+                return (
+                  <div
+                    key={item.id}
+                    className="p-4 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-800">{item.name}</span>
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600">
+                          x{item.quantity} {item.quantity === 1 ? 'u' : 'unidades'}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600">
+                          {PAYMENT_METHODS.find((method) => method.id === item.paymentMethod)?.name || 'Tarjeta'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" /> {item.place}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: catInfo.color }}></span>
+                          {catInfo.name.split(' / ')[0]}
+                        </span>
+                        <span>Eliminado: {new Date(item.deletedAt).toLocaleDateString('es-ES')}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-sm font-bold text-slate-700">
+                        ${totalItemCost.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <button
+                        onClick={() => onRestoreItem(item.id)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition"
+                      >
+                        Restaurar
+                      </button>
+                      <button
+                        onClick={() => setPurgeTargetId(item.id)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 transition"
+                      >
+                        Borrar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+
+      {purgeTargetId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-100 p-6">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 h-9 w-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+                <Trash2 className="h-4 w-4" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Borrar del historial</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Este registro se eliminara permanentemente y no podras recuperarlo.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setPurgeTargetId(null)}
+                className="px-3.5 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  onPurgeArchivedItem(purgeTargetId);
+                  setPurgeTargetId(null);
+                }}
+                className="px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 transition"
+              >
+                Si, borrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -13,7 +13,7 @@ import {
   Heart,
   ExternalLink
 } from 'lucide-react';
-import { ShoppingItem, BudgetSummary } from './types';
+import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS } from './types';
 import BudgetCard from './components/BudgetCard';
 import AddItemForm from './components/AddItemForm';
 import StoreSummary from './components/StoreSummary';
@@ -21,6 +21,7 @@ import PurchaseList from './components/PurchaseList';
 
 // Initial demo data to showcase calculating capabilities immediately
 const DEFAULT_BUDGET = 350.00;
+const DEFAULT_PAYMENT_METHOD = 'tarjeta';
 const DEFAULT_ITEMS: ShoppingItem[] = [
   {
     id: 'demo-1',
@@ -29,6 +30,7 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
     price: 12.50,
     quantity: 1,
     category: 'comida',
+    paymentMethod: 'efectivo',
     bought: true,
     createdAt: new Date(Date.now() - 3600000 * 24).toISOString() // 1 day ago
   },
@@ -39,6 +41,7 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
     price: 7.80,
     quantity: 2,
     category: 'hogar',
+    paymentMethod: 'tarjeta',
     bought: false,
     createdAt: new Date(Date.now() - 3600000 * 12).toISOString() // 12 hours ago
   },
@@ -49,6 +52,7 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
     price: 49.99,
     quantity: 1,
     category: 'tecnologia',
+    paymentMethod: 'tarjeta',
     bought: false,
     createdAt: new Date(Date.now() - 3600000 * 5).toISOString() // 5 hours ago
   },
@@ -59,6 +63,7 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
     price: 29.95,
     quantity: 1,
     category: 'ropa',
+    paymentMethod: 'efectivo',
     bought: true,
     createdAt: new Date(Date.now() - 3600000 * 2).toISOString() // 2 hours ago
   },
@@ -69,6 +74,7 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
     price: 18.20,
     quantity: 1,
     category: 'salud',
+    paymentMethod: 'transferencia',
     bought: false,
     createdAt: new Date(Date.now() - 300000).toISOString() // 5 min ago
   }
@@ -76,32 +82,78 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
 
 export default function App() {
   const [items, setItems] = useState<ShoppingItem[]>([]);
-  const [totalBudget, setTotalBudget] = useState<number>(DEFAULT_BUDGET);
+  const [archivedItems, setArchivedItems] = useState<ArchivedItem[]>([]);
+  const [cashBudget, setCashBudget] = useState<number>(0);
+  const [cardBudget, setCardBudget] = useState<number>(DEFAULT_BUDGET);
+  const [places, setPlaces] = useState<string[]>([]);
   const [selectedStoreFilter, setSelectedStoreFilter] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [categories, setCategories] = useState(PREDEFINED_CATEGORIES);
 
   // 1. Initial State Load from LocalStorage
   useEffect(() => {
     try {
       const storedItems = localStorage.getItem('cobuy_shopping_items');
       const storedBudget = localStorage.getItem('cobuy_total_budget');
+      const storedCashBudget = localStorage.getItem('cobuy_budget_cash');
+      const storedCardBudget = localStorage.getItem('cobuy_budget_card');
+      const storedCategories = localStorage.getItem('cobuy_categories');
+      const storedArchivedItems = localStorage.getItem('cobuy_archived_items');
+      const storedPlaces = localStorage.getItem('cobuy_places');
 
       if (storedItems) {
-        setItems(JSON.parse(storedItems));
+        const parsedItems = JSON.parse(storedItems) as ShoppingItem[];
+        const normalizedItems = parsedItems.map((item) => ({
+          ...item,
+          paymentMethod: item.paymentMethod || DEFAULT_PAYMENT_METHOD
+        }));
+        setItems(normalizedItems);
       } else {
         setItems(DEFAULT_ITEMS);
       }
 
-      if (storedBudget) {
-        setTotalBudget(parseFloat(storedBudget) || DEFAULT_BUDGET);
+      if (storedArchivedItems) {
+        const parsedArchived = JSON.parse(storedArchivedItems) as ArchivedItem[];
+        const normalizedArchived = parsedArchived.map((item) => ({
+          ...item,
+          paymentMethod: item.paymentMethod || DEFAULT_PAYMENT_METHOD
+        }));
+        setArchivedItems(normalizedArchived);
       } else {
-        setTotalBudget(DEFAULT_BUDGET);
+        setArchivedItems([]);
+      }
+
+      if (storedPlaces) {
+        setPlaces(JSON.parse(storedPlaces));
+      } else {
+        setPlaces([]);
+      }
+
+      if (storedCategories) {
+        setCategories(JSON.parse(storedCategories));
+      } else {
+        setCategories(PREDEFINED_CATEGORIES);
+      }
+
+      if (storedCashBudget || storedCardBudget) {
+        setCashBudget(parseFloat(storedCashBudget || '0') || 0);
+        setCardBudget(parseFloat(storedCardBudget || '0') || 0);
+      } else if (storedBudget) {
+        setCashBudget(0);
+        setCardBudget(parseFloat(storedBudget) || DEFAULT_BUDGET);
+      } else {
+        setCashBudget(0);
+        setCardBudget(DEFAULT_BUDGET);
       }
     } catch (e) {
       console.warn("No se pudo cargar datos desde localStorage", e);
       setItems(DEFAULT_ITEMS);
-      setTotalBudget(DEFAULT_BUDGET);
+      setArchivedItems([]);
+      setCashBudget(0);
+      setCardBudget(DEFAULT_BUDGET);
+      setCategories(PREDEFINED_CATEGORIES);
+      setPlaces([]);
     } finally {
       setIsInitialized(true);
     }
@@ -120,11 +172,39 @@ export default function App() {
   useEffect(() => {
     if (!isInitialized) return;
     try {
-      localStorage.setItem('cobuy_total_budget', totalBudget.toString());
+      localStorage.setItem('cobuy_archived_items', JSON.stringify(archivedItems));
+    } catch (e) {
+      console.error("Error al guardar historial en localStorage", e);
+    }
+  }, [archivedItems, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_budget_cash', cashBudget.toString());
+      localStorage.setItem('cobuy_budget_card', cardBudget.toString());
     } catch (e) {
       console.error("Error al guardar presupuesto en localStorage", e);
     }
-  }, [totalBudget, isInitialized]);
+  }, [cashBudget, cardBudget, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_categories', JSON.stringify(categories));
+    } catch (e) {
+      console.error("Error al guardar categorias en localStorage", e);
+    }
+  }, [categories, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_places', JSON.stringify(places));
+    } catch (e) {
+      console.error("Error al guardar lugares en localStorage", e);
+    }
+  }, [places, isInitialized]);
 
   // Core Mutation Actions
   const handleAddItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
@@ -134,6 +214,9 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
     setItems((prev) => [newItem, ...prev]);
+    if (itemData.place && !places.some((place) => place.toLowerCase() === itemData.place.toLowerCase())) {
+      setPlaces((prev) => [itemData.place, ...prev]);
+    }
   };
 
   const handleToggleBought = (id: string) => {
@@ -145,7 +228,32 @@ export default function App() {
   };
 
   const handleDeleteItem = (id: string) => {
-    setItems((prev) => prev.filter(item => item.id !== id));
+    setItems((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (!target) return prev;
+      setArchivedItems((archived) => {
+        if (archived.some((item) => item.id === id)) return archived;
+        return [{ ...target, deletedAt: new Date().toISOString() }, ...archived];
+      });
+      return prev.filter(item => item.id !== id);
+    });
+  };
+
+  const handleRestoreItem = (id: string) => {
+    setArchivedItems((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (!target) return prev;
+      const { deletedAt, ...rest } = target;
+      setItems((current) => {
+        if (current.some((item) => item.id === id)) return current;
+        return [rest, ...current];
+      });
+      return prev.filter(item => item.id !== id);
+    });
+  };
+
+  const handlePurgeArchivedItem = (id: string) => {
+    setArchivedItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleUpdateItem = (id: string, updatedData: Partial<ShoppingItem>) => {
@@ -156,8 +264,37 @@ export default function App() {
     );
   };
 
-  const handleUpdateBudget = (newBudget: number) => {
-    setTotalBudget(newBudget);
+  const handleUpdateBudget = (type: 'cash' | 'card', newBudget: number) => {
+    if (type === 'cash') {
+      setCashBudget(newBudget);
+      return;
+    }
+    setCardBudget(newBudget);
+  };
+
+  const handleAddCategory = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
+    const normalized = trimmedName.toLowerCase();
+    if (categories.some((cat) => cat.name.toLowerCase() === normalized)) return;
+
+    const palette = ['#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#14B8A6', '#6B7280'];
+    const nextColor = palette[categories.length % palette.length];
+    const newCategory = {
+      id: `custom-${normalized.replace(/\s+/g, '-')}`,
+      name: trimmedName,
+      color: nextColor
+    };
+
+    setCategories((prev) => [...prev, newCategory]);
+  };
+
+  const handleAddPlace = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    if (places.some((place) => place.toLowerCase() === trimmedName.toLowerCase())) return;
+    setPlaces((prev) => [trimmedName, ...prev]);
   };
 
   // Reset shopping database completely
@@ -167,14 +304,17 @@ export default function App() {
 
   const handleConfirmReset = () => {
     setItems([]);
-    setTotalBudget(0);
+    setArchivedItems([]);
+    setCashBudget(0);
+    setCardBudget(0);
     setSelectedStoreFilter(null);
+    setPlaces([]);
     setIsResetModalOpen(false);
   };
 
   // Export List functionality
   const handleExportData = () => {
-    const keys = ['Producto', 'Lugar', 'Precio Unitario', 'Cantidad', 'Costo Total', 'Categoría', 'Comprado', 'Fecha de Registro'];
+    const keys = ['Producto', 'Lugar', 'Precio Unitario', 'Cantidad', 'Costo Total', 'Categoria', 'Metodo de Pago', 'Comprado', 'Fecha de Registro'];
     const csvContent = [
       keys.join(','),
       ...items.map(i => [
@@ -184,6 +324,7 @@ export default function App() {
         i.quantity,
         (i.price * i.quantity).toFixed(2),
         `"${i.category}"`,
+        `"${PAYMENT_METHODS.find((method) => method.id === i.paymentMethod)?.name || 'Tarjeta'}"`,
         i.bought ? "SÍ" : "NO",
         new Date(i.createdAt).toLocaleDateString('es-ES')
       ].join(','))
@@ -203,17 +344,29 @@ export default function App() {
   // Compute stats in real-time (vaya haciendo cuentas de todo)
   const spent = items.reduce((acc, curr) => acc + (curr.bought ? curr.price * curr.quantity : 0), 0);
   const planned = items.reduce((acc, curr) => acc + (!curr.bought ? curr.price * curr.quantity : 0), 0);
+  const totalBudget = cashBudget + cardBudget;
   const remaining = totalBudget - spent;
+
+  const cashSpent = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
+  const cashPlanned = items.reduce((acc, curr) => acc + (!curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
+  const cardSpent = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
+  const cardPlanned = items.reduce((acc, curr) => acc + (!curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
 
   const budgetSummary: BudgetSummary = {
     totalBudget,
     spent,
     planned,
-    remaining
+    remaining,
+    cashBudget,
+    cardBudget,
+    cashSpent,
+    cashPlanned,
+    cardSpent,
+    cardPlanned
   };
 
   // Extract unique place strings sorted for smart Autocomplete suggestions
-  const existingPlaces: string[] = Array.from(new Set(items.map(item => item.place.trim()))).filter(Boolean) as string[];
+  const existingPlaces: string[] = places.map((place) => place.trim()).filter(Boolean) as string[];
 
   return (
     <div className="min-h-screen bg-slate-50/60 pb-16 flex flex-col font-sans" id="app-root-layout">
@@ -284,10 +437,14 @@ export default function App() {
             <div className="flex-grow">
               <PurchaseList 
                 items={items}
+                archivedItems={archivedItems}
                 selectedStoreFilter={selectedStoreFilter}
                 onToggleBought={handleToggleBought}
                 onDeleteItem={handleDeleteItem}
                 onUpdateItem={handleUpdateItem}
+                onRestoreItem={handleRestoreItem}
+                onPurgeArchivedItem={handlePurgeArchivedItem}
+                categories={categories}
               />
             </div>
             
@@ -300,6 +457,9 @@ export default function App() {
             <AddItemForm 
               onAddItem={handleAddItem} 
               existingPlaces={existingPlaces}
+              onAddPlace={handleAddPlace}
+              categories={categories}
+              onAddCategory={handleAddCategory}
             />
 
             {/* Aggregated store financial sums ("haciendo cuentas por lugar") */}

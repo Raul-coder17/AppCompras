@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Wallet, 
   TrendingUp, 
@@ -17,19 +17,41 @@ import { BudgetSummary } from '../types';
 
 interface BudgetCardProps {
   summary: BudgetSummary;
-  onUpdateBudget: (newBudget: number) => void;
+  onUpdateBudget: (type: 'cash' | 'card', newBudget: number) => void;
 }
 
 export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps) {
-  const { totalBudget, spent, planned, remaining } = summary;
-  const [isEditing, setIsEditing] = useState(false);
-  const [tempBudget, setTempBudget] = useState(totalBudget.toString());
+  const { totalBudget, spent, planned, remaining, cashBudget, cardBudget, cashSpent, cashPlanned, cardSpent, cardPlanned } = summary;
+  const [isEditingCash, setIsEditingCash] = useState(false);
+  const [isEditingCard, setIsEditingCard] = useState(false);
+  const [tempCashBudget, setTempCashBudget] = useState(cashBudget.toString());
+  const [tempCardBudget, setTempCardBudget] = useState(cardBudget.toString());
 
-  const handleSave = () => {
-    const value = parseFloat(tempBudget);
+  useEffect(() => {
+    if (!isEditingCash) {
+      setTempCashBudget(cashBudget.toString());
+    }
+  }, [cashBudget, isEditingCash]);
+
+  useEffect(() => {
+    if (!isEditingCard) {
+      setTempCardBudget(cardBudget.toString());
+    }
+  }, [cardBudget, isEditingCard]);
+
+  const handleSaveCash = () => {
+    const value = parseFloat(tempCashBudget);
     if (!isNaN(value) && value >= 0) {
-      onUpdateBudget(value);
-      setIsEditing(false);
+      onUpdateBudget('cash', value);
+      setIsEditingCash(false);
+    }
+  };
+
+  const handleSaveCard = () => {
+    const value = parseFloat(tempCardBudget);
+    if (!isNaN(value) && value >= 0) {
+      onUpdateBudget('card', value);
+      setIsEditingCard(false);
     }
   };
 
@@ -37,69 +59,24 @@ export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps)
   const percentPlanned = totalBudget > 0 ? Math.min(100, Math.round((planned / totalBudget) * 100)) : 0;
   const totalAllocated = spent + planned;
   const percentTotal = totalBudget > 0 ? Math.min(100, Math.round((totalAllocated / totalBudget) * 100)) : 0;
+  const remainingCash = cashBudget - cashSpent;
+  const remainingCard = cardBudget - cardSpent;
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden" id="budget-card-container">
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden" id="budget-card-container">
       {/* Header section with interactive Available Capital input */}
-      <div className="p-6 md:p-8 bg-slate-50 border-b border-slate-100">
+      <div className="p-6 md:p-8 bg-slate-50/70 border-b border-slate-200">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
               <Wallet className="w-3.5 h-3.5 text-slate-400" />
-              Capital Disponible
+              Presupuesto Total
             </p>
-            {isEditing ? (
-              <div className="flex items-center gap-2 mt-2" id="editing-budget">
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xl">$</span>
-                  <input
-                    type="number"
-                    value={tempBudget}
-                    onChange={(e) => setTempBudget(e.target.value)}
-                    className="pl-7 pr-3 py-1.5 w-40 bg-white border-2 border-slate-300 rounded-xl focus:border-slate-800 focus:outline-none font-bold text-xl text-slate-800"
-                    placeholder="0.00"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSave();
-                      if (e.key === 'Escape') setIsEditing(false);
-                    }}
-                  />
-                </div>
-                <button
-                  onClick={handleSave}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition duration-150 shadow-sm"
-                  title="Guardar"
-                  id="save-budget-btn"
-                >
-                  <Check className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="p-2.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-xl transition duration-150"
-                  title="Cancelar"
-                  id="cancel-budget-btn"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2.5 mt-1.5 group" id="display-budget">
-                <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">
-                  ${totalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </h2>
-                <button
-                  onClick={() => {
-                    setTempBudget(totalBudget.toString());
-                    setIsEditing(true);
-                  }}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition duration-200 cursor-pointer"
-                  title="Editar capital de compras"
-                  id="edit-budget-btn"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-2.5 mt-1.5 group" id="display-budget">
+              <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">
+                ${totalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h2>
+            </div>
           </div>
 
           <div className="flex flex-col items-end text-right md:w-auto w-full">
@@ -115,6 +92,124 @@ export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps)
             <p className="text-xs text-slate-400 mt-1">
               {percentTotal}% del presupuesto comprometido
             </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Efectivo</p>
+              {remainingCash < 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100">
+                  Presupuesto excedido
+                </span>
+              )}
+            </div>
+            {isEditingCash ? (
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="number"
+                  value={tempCashBudget}
+                  onChange={(e) => setTempCashBudget(e.target.value)}
+                  className="w-32 px-3 py-1.5 bg-white border border-slate-300 rounded-xl focus:border-slate-800 focus:outline-none font-bold text-lg text-slate-800"
+                  placeholder="0.00"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveCash();
+                    if (e.key === 'Escape') setIsEditingCash(false);
+                  }}
+                />
+                <button
+                  onClick={handleSaveCash}
+                  className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition"
+                  title="Guardar efectivo"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setIsEditingCash(false)}
+                  className="p-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-xl transition"
+                  title="Cancelar"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-2">
+                <p className="text-2xl font-extrabold text-slate-900">
+                  ${cashBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <button
+                  onClick={() => {
+                    setTempCashBudget(cashBudget.toString());
+                    setIsEditingCash(true);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition"
+                  title="Editar efectivo"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 mt-2">Restante: ${remainingCash.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="text-[11px] text-slate-400">Gastado: ${cashSpent.toFixed(2)} | Planificado: ${cashPlanned.toFixed(2)}</p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Tarjeta / Transferencia</p>
+              {remainingCard < 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100">
+                  Presupuesto excedido
+                </span>
+              )}
+            </div>
+            {isEditingCard ? (
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="number"
+                  value={tempCardBudget}
+                  onChange={(e) => setTempCardBudget(e.target.value)}
+                  className="w-32 px-3 py-1.5 bg-white border border-slate-300 rounded-xl focus:border-slate-800 focus:outline-none font-bold text-lg text-slate-800"
+                  placeholder="0.00"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveCard();
+                    if (e.key === 'Escape') setIsEditingCard(false);
+                  }}
+                />
+                <button
+                  onClick={handleSaveCard}
+                  className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition"
+                  title="Guardar tarjeta"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setIsEditingCard(false)}
+                  className="p-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-xl transition"
+                  title="Cancelar"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-2">
+                <p className="text-2xl font-extrabold text-slate-900">
+                  ${cardBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <button
+                  onClick={() => {
+                    setTempCardBudget(cardBudget.toString());
+                    setIsEditingCard(true);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition"
+                  title="Editar tarjeta"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 mt-2">Restante: ${remainingCard.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="text-[11px] text-slate-400">Gastado: ${cardSpent.toFixed(2)} | Planificado: ${cardPlanned.toFixed(2)}</p>
           </div>
         </div>
 
@@ -149,7 +244,7 @@ export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps)
       </div>
 
       {/* Grid of calculations */}
-      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100 bg-white" id="budget-calculations-grid">
+      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-200 bg-white" id="budget-calculations-grid">
         
         {/* Col 1: Gastado */}
         <div className="p-6 flex items-start gap-4" id="stat-spent">

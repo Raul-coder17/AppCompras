@@ -42,6 +42,11 @@ Para desarrollar o correr la app en tu propia computadora:
    ```
 5. La terminal te dará una dirección de red (ej. `http://192.168.x.x:3000`). Entra ahí en tu computadora o vía el celular conectado al mismo Wi-Fi.
 
+### Reiniciar o cerrar el servidor local
+
+- **Cerrar (detener) el servidor:** en la terminal donde está corriendo, presiona `Ctrl + C`.
+- **Reiniciar el servidor:** vuelve a ejecutar el comando `npm run dev -- --host`.
+
 ---
 
 ## 4. Cómo instalar la Aplicación en Teléfonos (Android / iPhone)
