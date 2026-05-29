@@ -70,6 +70,42 @@ interface AIAssistantProps {
   onResetDatabase: () => void;
 }
 
+// Premium Error Translation Parser for Gemini API
+export const parseGeminiError = (err: any, responseStatus?: number): string => {
+  let msg = '';
+  if (err instanceof Error) {
+    msg = err.message;
+  } else if (typeof err === 'object' && err !== null) {
+    msg = err.message || JSON.stringify(err);
+  } else {
+    msg = String(err);
+  }
+
+  const lowerMsg = msg.toLowerCase();
+  
+  if (
+    lowerMsg.includes('api key not valid') || 
+    (lowerMsg.includes('api key') && lowerMsg.includes('invalid')) || 
+    (responseStatus === 400 && lowerMsg.includes('key'))
+  ) {
+    return '🔑 Tu API Key de Gemini parece no ser válida o está mal copiada. Por favor, verifícala en los Ajustes (ícono de engranaje arriba).';
+  }
+  if (lowerMsg.includes('quota exceeded') || lowerMsg.includes('resource exhausted') || responseStatus === 429) {
+    return '⏳ Se ha agotado la cuota gratuita de tu API Key o estás enviando peticiones demasiado rápido. Espera unos segundos y vuelve a intentarlo.';
+  }
+  if (lowerMsg.includes('safety') || lowerMsg.includes('blocked') || lowerMsg.includes('candidate') || lowerMsg.includes('finishreason')) {
+    return '🛡️ La solicitud o la imagen cargada fue bloqueada por los filtros de seguridad y políticas de contenido de Gemini. Intenta refrasear tu mensaje o subir una imagen diferente.';
+  }
+  if ((lowerMsg.includes('model') && lowerMsg.includes('not found')) || responseStatus === 404) {
+    return '🧠 El modelo seleccionado no está disponible en este momento. Intenta cambiar de modelo en los Ajustes de la IA.';
+  }
+  if (lowerMsg.includes('failed to fetch') || lowerMsg.includes('network error') || lowerMsg.includes('cors')) {
+    return '📶 Error de conexión a internet o bloqueo de red. Por favor revisa que tengas acceso estable a internet y vuelve a intentar.';
+  }
+  
+  return `⚠️ Error de la IA: ${msg || 'Ocurrió un problema de comunicación inesperado. Intenta de nuevo.'}`;
+};
+
 export default function AIAssistant({
   userName = 'Usuario',
   items,
@@ -568,7 +604,8 @@ Reglas importantes:
 
       if (!response.ok) {
         const errorDetails = await response.json().catch(() => ({}));
-        throw new Error(errorDetails?.error?.message || `HTTP ${response.status}`);
+        const rawMsg = errorDetails?.error?.message || `HTTP ${response.status}`;
+        throw new Error(parseGeminiError(rawMsg, response.status));
       }
 
       const responseData = await response.json();
@@ -591,7 +628,7 @@ Reglas importantes:
         }
       }
       
-      throw err;
+      throw new Error(parseGeminiError(err));
     }
   };
 
@@ -691,7 +728,96 @@ Reglas importantes:
             return {
               ...msg,
               status: 'error',
-              text: `Error de conexión: ${err.message || 'Intenta de nuevo más tarde o verifica tu API Key.'}`
+              text: err.message || 'Ocurrió un error inesperado al conectar con Google Gemini.'
+            };
+          }
+          return msg;
+        })
+      );
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // Retry a failed message directly from the UI
+  const handleRetryMessage = async (errorMessageId: string) => {
+    const errorMsgIndex = messages.findIndex(m => m.id === errorMessageId);
+    if (errorMsgIndex === -1) return;
+
+    // Find the closest user prompt preceding the error
+    let userMsg = null;
+    for (let i = errorMsgIndex - 1; i >= 0; i--) {
+      if (messages[i].sender === 'user') {
+        userMsg = messages[i];
+        break;
+      }
+    }
+
+    if (!userMsg) return;
+
+    // Change status back to loading and clear error text
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === errorMessageId 
+          ? { ...msg, status: 'loading', text: undefined } 
+          : msg
+      )
+    );
+
+    setIsSending(true);
+
+    try {
+      const { responseData, modelUsed } = await callGemini(userMsg.text || '', userMsg.image || null, selectedModel);
+      
+      const candidate = responseData?.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      
+      let modelResponseText = '';
+      let functionCall: any = null;
+      for (const part of parts) {
+        if (part.text && !modelResponseText) {
+          modelResponseText = part.text;
+        }
+        if (part.functionCall && !functionCall) {
+          functionCall = part.functionCall;
+        }
+      }
+
+      setMessages(prev => 
+        prev.map(msg => {
+          if (msg.id === errorMessageId) {
+            const updatedMsg: ChatMessage = {
+              ...msg,
+              status: 'done',
+              modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed
+            };
+
+            if (functionCall) {
+              updatedMsg.toolCall = {
+                name: functionCall.name,
+                args: functionCall.args,
+                status: 'pending'
+              };
+              updatedMsg.text = modelResponseText || 'Tengo una propuesta para ti. Por favor, confirma los detalles a continuación:';
+            } else {
+              updatedMsg.text = modelResponseText || 'Entendido. Si tienes alguna duda, dime.';
+            }
+
+            return updatedMsg;
+          }
+          return msg;
+        })
+      );
+
+    } catch (err: any) {
+      console.error(err);
+      setMessages(prev => 
+        prev.map(msg => {
+          if (msg.id === errorMessageId) {
+            return {
+              ...msg,
+              status: 'error',
+              text: err.message || 'Ocurrió un error al reintentar la conexión.'
             };
           }
           return msg;
@@ -1079,9 +1205,29 @@ Reglas importantes:
                       )}
 
                       {msg.status === 'error' && (
-                        <div className="flex items-start gap-1 p-2 bg-rose-50 border border-rose-100 rounded-xl mt-1.5 max-w-[85%] text-[10px] text-rose-600">
-                          <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                          <span>{msg.text}</span>
+                        <div className="flex flex-col gap-2 p-3 bg-rose-50 border border-rose-100/70 rounded-xl mt-1.5 max-w-[85%] text-[10px] text-rose-700 shadow-xs animate-in fade-in duration-200">
+                          <div className="flex items-start gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                            <span className="font-semibold leading-relaxed">{msg.text}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 pt-1.5 border-t border-rose-100/50">
+                            {msg.text?.includes('🔑') && (
+                              <button
+                                type="button"
+                                onClick={() => setShowSettings(true)}
+                                className="px-2 py-0.5 bg-white hover:bg-rose-100/20 text-rose-700 border border-rose-200 rounded text-[9px] font-bold cursor-pointer transition active:scale-95"
+                              >
+                                Configurar API Key
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleRetryMessage(msg.id)}
+                              className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[9px] font-bold cursor-pointer transition active:scale-95 flex items-center gap-0.5"
+                            >
+                              <RefreshCw className="w-2.5 h-2.5 shrink-0" /> Reintentar
+                            </button>
+                          </div>
                         </div>
                       )}
 
