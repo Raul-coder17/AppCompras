@@ -71,7 +71,7 @@ interface AIAssistantProps {
 }
 
 export default function AIAssistant({
-  userName = 'Raúl',
+  userName = 'Usuario',
   items,
   archivedItems,
   servicePayments,

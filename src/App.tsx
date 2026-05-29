@@ -99,7 +99,7 @@ export default function App() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [categories, setCategories] = useState(PREDEFINED_CATEGORIES);
   const [activeTab, setActiveTab] = useState<'list' | 'calendar' | 'charts'>('list');
-  const [userName, setUserName] = useState<string>(() => localStorage.getItem('cobuy_username') || 'Raúl');
+  const [userName, setUserName] = useState<string>(() => localStorage.getItem('cobuy_username') || 'Usuario');
   const [isNameModalOpen, setIsNameModalOpen] = useState(false);
   const [tempName, setTempName] = useState(userName);
 
