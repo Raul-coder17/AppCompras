@@ -564,8 +564,17 @@ Reglas importantes:
     const currentUserParts: any[] = [];
     if (userText) {
       currentUserParts.push({ text: userText });
-    } else if (base64Image) {
-      currentUserParts.push({ text: 'Analiza esta imagen de recibo, extrae la tienda, los artículos listados, el precio unitario de cada uno, cantidades, la categoría lógica para cada uno, y el método de pago si se indica. Propón agregar esta compra a la aplicación llamando a la función add_multiple_items_proposed o add_item_proposed.' });
+    }
+    
+    if (base64Image) {
+      const receiptPrompt = 'Analiza esta imagen de recibo o ticket de compra de forma extremadamente minuciosa. Extrae con precisión:\n' +
+        '1. La tienda o establecimiento en el campo "place" de cada artículo.\n' +
+        '2. La lista de productos con sus nombres completos descriptivos.\n' +
+        '3. Precios unitarios y cantidades. Si solo hay un total global sin desglosar o si prefieres proponer un total unificado para la lista de compras, indícalo usando el parámetro "totalPrice".\n' +
+        '4. Clasifica adecuadamente cada artículo en una categoría lógica.\n' +
+        '5. Detecta el método de pago si se especifica.\n' +
+        'Invoca inmediatamente la herramienta add_multiple_items_proposed para proponer registrar todo el ticket junto en pantalla.';
+      currentUserParts.push({ text: receiptPrompt });
     }
     
     if (base64Image) {
