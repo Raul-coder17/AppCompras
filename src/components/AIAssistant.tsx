@@ -638,8 +638,19 @@ Reglas importantes:
       const { responseData, modelUsed } = await callGemini(currentMessageText, currentMessageImage, selectedModel);
       
       const candidate = responseData?.candidates?.[0];
-      const modelResponseText = candidate?.content?.parts?.[0]?.text || '';
-      const functionCall = candidate?.content?.parts?.[0]?.functionCall;
+      const parts = candidate?.content?.parts || [];
+      
+      // Search ALL parts for text and functionCall — Gemini can place them in any order
+      let modelResponseText = '';
+      let functionCall: any = null;
+      for (const part of parts) {
+        if (part.text && !modelResponseText) {
+          modelResponseText = part.text;
+        }
+        if (part.functionCall && !functionCall) {
+          functionCall = part.functionCall;
+        }
+      }
 
       setMessages(prev => 
         prev.map(msg => {
