@@ -282,6 +282,10 @@ Reglas importantes:
 7. Para modificar un artículo existente (ej: "cambia el precio del pan a $20" o "renombra cereal a cereal fitness"), llama a 'update_item_proposed'.
 8. Si el usuario pide agregar un nuevo lugar frecuente, categoría o servicio de forma independiente, llama a 'add_place', 'add_category' o 'add_service_option' respectively.
 9. Mantén un tono sumamente amigable, claro y respetuoso en español, estructurando la información con viñetas legibles y números grandes si haces cálculos para que sea muy cómodo de leer para adultos mayores.
+10. PRECIO TOTAL vs PRECIOS INDIVIDUALES en compras múltiples:
+   - Si el usuario menciona varios artículos CON un precio total general (ej: "Compré leche, pan y huevos por $150", "Gasté $200 en frutas, verduras y carne"), usa 'add_multiple_items_proposed' con el parámetro 'totalPrice' igual al monto total y deja el precio individual de cada artículo en 0. La tarjeta de confirmación se encargará de distribuir el total.
+   - Si el usuario menciona varios artículos CON precios individuales (ej: "Compré leche $30, pan $20 y huevos $50"), usa 'add_multiple_items_proposed' con el precio de cada artículo en su campo 'price' y NO envíes 'totalPrice'.
+   - Si el usuario menciona artículos sin ningún precio, no envíes 'totalPrice' ni precios individuales (dejar en 0).
 `;
 
     // Tools definition
@@ -307,10 +311,11 @@ Reglas importantes:
           },
           {
             name: 'add_multiple_items_proposed',
-            description: 'Propone añadir múltiples artículos a la vez (ideal para escaneo de tickets completos de supermercado o listas rápidas).',
+            description: 'Propone añadir múltiples artículos a la vez (ideal para escaneo de tickets completos de supermercado o listas rápidas). Soporta dos modos: precios individuales por artículo, o un precio total general que se distribuye entre todos.',
             parameters: {
               type: 'OBJECT',
               properties: {
+                totalPrice: { type: 'NUMBER', description: 'Precio total general de toda la compra. Usar SOLO cuando el usuario da un monto global para varios artículos sin desglosar precios individuales (ej: "compré X, Y y Z por $150"). Si se proporcionan precios individuales por artículo, NO enviar este campo.' },
                 items: {
                   type: 'ARRAY',
                   description: 'Lista de artículos extraídos',
@@ -319,7 +324,7 @@ Reglas importantes:
                     properties: {
                       name: { type: 'STRING', description: 'Nombre del artículo' },
                       place: { type: 'STRING', description: 'Lugar de compra' },
-                      price: { type: 'NUMBER', description: 'Precio unitario' },
+                      price: { type: 'NUMBER', description: 'Precio unitario del artículo. Dejar en 0 si se usa totalPrice.' },
                       quantity: { type: 'NUMBER', description: 'Cantidad' },
                       category: { type: 'STRING', description: 'Categoría (comida, hogar, tecnologia, ropa, salud, otros)' },
                       paymentMethod: { type: 'STRING', description: 'Método de pago (efectivo, tarjeta, transferencia). Dejar en blanco si no se conoce.' },
@@ -1255,15 +1260,24 @@ function ConfirmationCard({
     } 
     else if (toolName === 'add_multiple_items_proposed') {
       if (!Array.isArray(args.items)) args.items = [];
+      const hasTotalPrice = args.totalPrice !== undefined && Number(args.totalPrice) > 0;
+      const totalPriceVal = hasTotalPrice ? Number(args.totalPrice) : 0;
+      const itemCount = args.items.length || 1;
+      const distributedPrice = hasTotalPrice ? Math.round((totalPriceVal / itemCount) * 100) / 100 : 0;
+
       args.items = args.items.map((item: any) => ({
         name: item.name || 'Producto',
         place: item.place || 'Supermercado',
-        price: item.price !== undefined ? Number(item.price) : 0,
+        price: hasTotalPrice ? distributedPrice : (item.price !== undefined ? Number(item.price) : 0),
         quantity: item.quantity !== undefined ? Number(item.quantity) : 1,
         category: item.category || 'comida',
         paymentMethod: item.paymentMethod || 'tarjeta',
         bought: item.bought !== undefined ? !!item.bought : true
       }));
+
+      // Store totalPrice mode flag for the confirmation card UI
+      args.useTotalPrice = hasTotalPrice;
+      args.totalPrice = hasTotalPrice ? totalPriceVal : undefined;
     }
     else if (toolName === 'add_service_proposed') {
       if (!args.service) args.service = 'Servicio';
@@ -1659,10 +1673,15 @@ function ConfirmationCard({
     };
 
     const handleDeleteItemFromList = (index: number) => {
-      setEditedArgs((prev: any) => ({
-        ...prev,
-        items: prev.items.filter((_: any, i: number) => i !== index)
-      }));
+      setEditedArgs((prev: any) => {
+        const newItems = prev.items.filter((_: any, i: number) => i !== index);
+        // Redistribute total if in totalPrice mode
+        if (prev.useTotalPrice && prev.totalPrice && newItems.length > 0) {
+          const distributed = Math.round((Number(prev.totalPrice) / newItems.length) * 100) / 100;
+          return { ...prev, items: newItems.map((i: any) => ({ ...i, price: distributed })) };
+        }
+        return { ...prev, items: newItems };
+      });
     };
 
     const handleBulkPaymentMethodChange = (method: string) => {
@@ -1680,9 +1699,44 @@ function ConfirmationCard({
       }));
     };
 
+    const handleTotalPriceChange = (newTotal: number) => {
+      setEditedArgs((prev: any) => {
+        const count = prev.items.length || 1;
+        const distributed = Math.round((newTotal / count) * 100) / 100;
+        return {
+          ...prev,
+          totalPrice: newTotal,
+          items: prev.items.map((i: any) => ({ ...i, price: distributed }))
+        };
+      });
+    };
+
+    const handleToggleTotalPriceMode = () => {
+      setEditedArgs((prev: any) => {
+        if (prev.useTotalPrice) {
+          // Switching OFF total mode → keep distributed prices as individual prices
+          return { ...prev, useTotalPrice: false, totalPrice: undefined };
+        } else {
+          // Switching ON total mode → sum current individual prices as the total
+          const currentSum = prev.items.reduce((acc: number, i: any) => acc + (Number(i.price) * Number(i.quantity || 1)), 0);
+          const count = prev.items.length || 1;
+          const distributed = Math.round((currentSum / count) * 100) / 100;
+          return {
+            ...prev,
+            useTotalPrice: true,
+            totalPrice: Math.round(currentSum * 100) / 100,
+            items: prev.items.map((i: any) => ({ ...i, price: distributed }))
+          };
+        }
+      });
+    };
+
     const list = editedArgs.items as any[];
     const storeName = list[0]?.place || 'Supermercado';
-    const totalAmount = list.reduce((acc, curr) => acc + (Number(curr.price) * Number(curr.quantity || 1)), 0);
+    const isTotalMode = !!editedArgs.useTotalPrice;
+    const totalAmount = isTotalMode
+      ? Number(editedArgs.totalPrice) || 0
+      : list.reduce((acc, curr) => acc + (Number(curr.price) * Number(curr.quantity || 1)), 0);
 
     return (
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4 max-w-[98%] mx-auto">
@@ -1693,9 +1747,47 @@ function ConfirmationCard({
             <ShoppingBag className="w-4 h-4 text-purple-600" />
             <span className="font-extrabold text-xs text-slate-800">Recibo en {storeName}</span>
           </div>
-          <span className="text-[11px] font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
-            Total: ${totalAmount.toFixed(2)}
-          </span>
+          {isTotalMode ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-500">Total: $</span>
+              <input
+                type="number"
+                step="0.01"
+                value={editedArgs.totalPrice}
+                onChange={(e) => handleTotalPriceChange(parseFloat(e.target.value) || 0)}
+                className="w-20 px-1.5 py-0.5 bg-purple-50 border border-purple-200 rounded-md text-[11px] font-extrabold text-purple-800 text-right focus:outline-none focus:border-purple-400"
+              />
+            </div>
+          ) : (
+            <span className="text-[11px] font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
+              Total: ${totalAmount.toFixed(2)}
+            </span>
+          )}
+        </div>
+
+        {/* Total Price Mode Toggle */}
+        <div className="flex items-center justify-between bg-purple-50/60 px-3 py-2 rounded-xl border border-purple-100/80">
+          <div className="flex flex-col">
+            <span className="text-[9px] font-bold text-purple-700 uppercase tracking-wider">Modo de precio</span>
+            <span className="text-[10px] text-purple-600 font-medium">
+              {isTotalMode ? 'Un solo total → se reparte entre todos' : 'Cada artículo tiene su precio'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleTotalPriceMode}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
+              isTotalMode 
+                ? 'bg-purple-600 border-purple-600 text-white' 
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {isTotalMode ? (
+              <><Coins className="w-3.5 h-3.5" /> Total General</>
+            ) : (
+              <><CreditCard className="w-3.5 h-3.5" /> Por Artículo</>
+            )}
+          </button>
         </div>
 
         {/* Bulk Controls */}
@@ -1767,18 +1859,29 @@ function ConfirmationCard({
               </div>
 
               {/* Grid with parameters */}
-              <div className="grid grid-cols-4 gap-1.5 items-end">
-                {/* Price */}
-                <div className="col-span-1">
-                  <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Precio ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={item.price}
-                    onChange={(e) => handleItemChange(idx, 'price', parseFloat(e.target.value) || 0)}
-                    className="w-full px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-700"
-                  />
-                </div>
+              <div className={`grid gap-1.5 items-end ${isTotalMode ? 'grid-cols-3' : 'grid-cols-4'}`}>
+                {/* Price — only show in individual mode */}
+                {!isTotalMode && (
+                  <div className="col-span-1">
+                    <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Precio ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={item.price}
+                      onChange={(e) => handleItemChange(idx, 'price', parseFloat(e.target.value) || 0)}
+                      className="w-full px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-700"
+                    />
+                  </div>
+                )}
+                {/* In total mode, show the distributed portion (read-only) */}
+                {isTotalMode && (
+                  <div className="col-span-1">
+                    <label className="block text-[8px] font-bold text-purple-400 uppercase tracking-wider mb-0.5">Porción ($)</label>
+                    <div className="w-full px-1.5 py-0.5 bg-purple-50 border border-purple-100 rounded text-[10px] text-purple-700 font-bold">
+                      ${Number(item.price).toFixed(2)}
+                    </div>
+                  </div>
+                )}
                 {/* Qty */}
                 <div className="col-span-1">
                   <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Cant.</label>
@@ -1790,7 +1893,7 @@ function ConfirmationCard({
                   />
                 </div>
                 {/* Category */}
-                <div className="col-span-2">
+                <div className="col-span-1">
                   <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Categoría</label>
                   <select
                     value={item.category}
