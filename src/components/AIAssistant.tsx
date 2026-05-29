@@ -45,6 +45,7 @@ interface ChatMessage {
 }
 
 interface AIAssistantProps {
+  userName?: string;
   items: ShoppingItem[];
   archivedItems: ArchivedItem[];
   servicePayments: ServicePayment[];
@@ -70,6 +71,7 @@ interface AIAssistantProps {
 }
 
 export default function AIAssistant({
+  userName = 'Raúl',
   items,
   archivedItems,
   servicePayments,
@@ -148,19 +150,27 @@ export default function AIAssistant({
     }
   }, []);
 
-  const toggleListening = () => {
+  const startListening = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
     if (!recognitionRef.current) {
       alert('El reconocimiento de voz no está soportado en este navegador. Te recomendamos usar Google Chrome o Safari.');
       return;
     }
+    try {
+      recognitionRef.current.start();
+    } catch (err) {
+      // Ignore if already started
+      console.debug('Recognition start issue:', err);
+    }
+  };
 
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
+  const stopListening = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (recognitionRef.current) {
       try {
-        recognitionRef.current.start();
+        recognitionRef.current.stop();
       } catch (err) {
-        console.error('Error starting recognition:', err);
+        console.debug('Recognition stop issue:', err);
       }
     }
   };
@@ -203,7 +213,7 @@ export default function AIAssistant({
         {
           id: 'welcome',
           sender: 'assistant',
-          text: `¡Hola! Soy ${assistantName}, tu asistente de compras con Google Gemini. Puedes pedirme que agregue artículos, registre pagos de servicios, actualice tus presupuestos o subas una foto de un recibo para escanearlo. ¿En qué te ayudo hoy?`
+          text: `¡Hola, ${userName}! Soy ${assistantName}, tu asistente de compras con Google Gemini. Puedes pedirme que agregue artículos, registre pagos de servicios, actualice tus presupuestos o subas una foto de un recibo para escanearlo. ¿En qué te ayudo hoy?`
         }
       ]);
     }
@@ -243,7 +253,8 @@ export default function AIAssistant({
     // Build current state payload for the system instructions
     const systemInstruction = `
 Eres un asistente financiero experto dentro de la aplicación 'Cuentas Compras'.
-Tu objetivo es ayudar al usuario a gestionar su lista de compras, servicios y presupuestos mediante lenguaje natural, consultas analíticas, cálculos matemáticos y análisis de fotografías de recibos.
+El usuario con el que estás hablando se llama: ${userName}. Dirígete a él o ella por su nombre cuando lo consideres oportuno de manera extremadamente afectuosa, respetuosa y cercana.
+Tu objetivo es ayudar a ${userName} a gestionar su lista de compras, servicios y presupuestos mediante lenguaje natural, consultas analíticas, cálculos matemáticos y análisis de fotografías de recibos.
 Hoy es ${new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 
 Estado actual de la aplicación:
@@ -323,13 +334,15 @@ Reglas importantes:
           },
           {
             name: 'add_service_proposed',
-            description: 'Propone registrar el pago de un servicio recurrente como internet, Uber, gas, etc.',
+            description: 'Propone registrar el pago de un servicio recurrente/fijo mensual como internet, Netflix, agua, etc.',
             parameters: {
               type: 'OBJECT',
               properties: {
                 service: { type: 'STRING', description: 'Nombre del servicio (ej. Netflix, Uber, Celular, Internet)' },
                 amount: { type: 'NUMBER', description: 'Monto total pagado por el servicio' },
-                paymentMethod: { type: 'STRING', description: 'Método de pago (efectivo, tarjeta, transferencia)' }
+                paymentMethod: { type: 'STRING', description: 'Método de pago (efectivo, tarjeta, transferencia)' },
+                isRecurring: { type: 'BOOLEAN', description: 'Indica si es una suscripción recurrente todos los meses (true) o cobro único (false)' },
+                recurringDay: { type: 'NUMBER', description: 'Día de cobro programado del mes (1 al 31) si es recurrente' }
               },
               required: ['service', 'amount']
             }
@@ -797,10 +810,14 @@ Reglas importantes:
         const serviceData = {
           service: finalArgs.service,
           amount: Number(finalArgs.amount) || 0,
-          paymentMethod: (finalArgs.paymentMethod as PaymentMethod) || 'tarjeta'
+          paymentMethod: (finalArgs.paymentMethod as PaymentMethod) || 'tarjeta',
+          isRecurring: finalArgs.isRecurring !== undefined ? !!finalArgs.isRecurring : undefined,
+          recurringDay: finalArgs.recurringDay !== undefined ? Number(finalArgs.recurringDay) : undefined
         };
         onAddServicePayment(serviceData);
-        feedbackText = `¡Servicio registrado! Se añadió el pago de '${serviceData.service}' por $${serviceData.amount.toFixed(2)}.`;
+        feedbackText = `¡Servicio registrado! Se añadió el pago de '${serviceData.service}' por $${serviceData.amount.toFixed(2)}${
+          serviceData.isRecurring ? ` (Recurrente el día ${serviceData.recurringDay})` : ''
+        }.`;
       } 
       else if (toolName === 'add_budget_funds') {
         feedbackText = executeBudgetFunds(finalArgs);
@@ -1142,18 +1159,22 @@ Reglas importantes:
                     className="hidden"
                   />
 
-                  {/* Microphone speech recognition button */}
+                  {/* Microphone speech recognition button - Push-To-Talk */}
                   <button
                     type="button"
-                    onClick={toggleListening}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer shrink-0 ${
+                    onMouseDown={startListening}
+                    onMouseUp={stopListening}
+                    onMouseLeave={stopListening}
+                    onTouchStart={startListening}
+                    onTouchEnd={stopListening}
+                    className={`p-2.5 rounded-xl border transition cursor-pointer shrink-0 select-none touch-none ${
                       isListening
                         ? 'bg-rose-500 border-rose-500 text-white animate-pulse shadow-md shadow-rose-200 scale-105'
                         : 'bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 border-slate-200'
                     }`}
-                    title={isListening ? "Detener grabación de voz" : "Grabar comando por voz"}
+                    title="Mantén presionado para hablar y suelta para enviar"
                   >
-                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    {isListening ? <MicOff className="w-4 h-4 animate-bounce" /> : <Mic className="w-4 h-4" />}
                   </button>
 
                   {/* Main Input Text */}
@@ -1237,6 +1258,8 @@ function ConfirmationCard({
       if (!args.service) args.service = 'Servicio';
       if (args.amount === undefined) args.amount = 0;
       if (!args.paymentMethod) args.paymentMethod = 'tarjeta';
+      if (args.isRecurring === undefined) args.isRecurring = false;
+      if (args.recurringDay === undefined) args.recurringDay = 10;
     }
     else if (toolName === 'update_item_proposed') {
       const existing = items.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
@@ -1895,6 +1918,42 @@ function ConfirmationCard({
                 <option value="transferencia">Transferencia</option>
               </select>
             </div>
+          </div>
+          
+          {/* Recurrence Selector */}
+          <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100/60">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pago Recurrente</label>
+              <button
+                type="button"
+                onClick={() => handleFieldChange('isRecurring', !editedArgs.isRecurring)}
+                className={`flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                  editedArgs.isRecurring 
+                    ? 'bg-indigo-50 border-indigo-250 text-indigo-700' 
+                    : 'bg-slate-50 border-slate-250 text-slate-700'
+                }`}
+              >
+                <span>{editedArgs.isRecurring ? '🔁 Sí, Mensual' : 'Cobro Único'}</span>
+                {editedArgs.isRecurring ? (
+                  <ToggleRight className="w-5 h-5 text-indigo-650" />
+                ) : (
+                  <ToggleLeft className="w-5 h-5 text-slate-500" />
+                )}
+              </button>
+            </div>
+            {editedArgs.isRecurring && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Día del mes (1-31)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={editedArgs.recurringDay}
+                  onChange={(e) => handleFieldChange('recurringDay', Math.min(31, Math.max(1, parseInt(e.target.value) || 1)))}
+                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-bold focus:outline-none"
+                />
+              </div>
+            )}
           </div>
 
           {paymentMethodMissing && !editedArgs.paymentMethod && (

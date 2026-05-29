@@ -99,6 +99,17 @@ export default function App() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [categories, setCategories] = useState(PREDEFINED_CATEGORIES);
   const [activeTab, setActiveTab] = useState<'list' | 'calendar' | 'charts'>('list');
+  const [userName, setUserName] = useState<string>(() => localStorage.getItem('cobuy_username') || 'Raúl');
+  const [isNameModalOpen, setIsNameModalOpen] = useState(false);
+  const [tempName, setTempName] = useState(userName);
+
+  const handleUpdateUserName = (newName: string) => {
+    const trimmed = newName.trim();
+    if (trimmed) {
+      setUserName(trimmed);
+      localStorage.setItem('cobuy_username', trimmed);
+    }
+  };
 
   // 1. Initial State Load from LocalStorage
   useEffect(() => {
@@ -469,10 +480,18 @@ export default function App() {
           <div className="flex items-center gap-2 sm:gap-3">
             
             {/* User chip */}
-            <div className="hidden md:flex items-center gap-2 bg-slate-50 px-3.5 py-2 rounded-full border border-slate-200/60 text-xs text-slate-700 font-bold">
-              <User className="w-4 h-4 text-slate-500" />
-              <span>Mi Perfil</span>
-            </div>
+            <button
+              onClick={() => {
+                setTempName(userName);
+                setIsNameModalOpen(true);
+              }}
+              className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 px-3.5 py-2 rounded-full border border-slate-200 hover:border-slate-350 text-xs text-slate-700 font-extrabold cursor-pointer transition-all shadow-xs active:scale-95 select-none"
+              title="Cambiar tu nombre de usuario"
+              id="user-profile-chip"
+            >
+              <User className="w-4 h-4 text-slate-500 shrink-0" />
+              <span>Hola, <span className="text-emerald-600 font-black">{userName}</span></span>
+            </button>
 
             {/* Export CSV action button */}
             <button
@@ -666,7 +685,60 @@ export default function App() {
           </div>
         </div>
       )}
+      {isNameModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-in fade-in duration-200" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl border border-slate-150 p-6 space-y-4 animate-in zoom-in duration-250">
+            <div className="flex items-center gap-2 border-b border-slate-50 pb-2">
+              <User className="w-5 h-5 text-emerald-500" />
+              <h2 className="text-sm font-black text-slate-900">¿Cómo te llamas?</h2>
+            </div>
+            
+            <p className="text-xs text-slate-500 leading-relaxed font-medium">
+              Escribe tu nombre para personalizar tu perfil y para que el asistente de Inteligencia Artificial se dirija a ti de manera cercana y personalizada.
+            </p>
+
+            <div>
+              <input
+                type="text"
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                maxLength={20}
+                placeholder="Escribe tu nombre (ej. Raúl)"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-slate-400 placeholder-slate-400"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && tempName.trim()) {
+                    handleUpdateUserName(tempName);
+                    setIsNameModalOpen(false);
+                  }
+                }}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsNameModalOpen(false)}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  handleUpdateUserName(tempName);
+                  setIsNameModalOpen(false);
+                }}
+                disabled={!tempName.trim()}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-100 disabled:text-slate-400 transition cursor-pointer"
+              >
+                Guardar Nombre
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <AIAssistant
+        userName={userName}
         items={items}
         archivedItems={archivedItems}
         servicePayments={servicePayments}
