@@ -103,6 +103,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
   const monthlyExpensesGrouped = useMemo(() => {
     const groups: Record<string, DailyExpenseDetail[]> = {};
 
+    // 1. Group actual paid expenses
     allActualExpenses.forEach((exp) => {
       const expDate = new Date(exp.createdAt);
       if (isNaN(expDate.getTime())) return;
@@ -122,8 +123,60 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
       }
     });
 
+    // 2. Identify recurrent services and inject planned ones if not already paid this month
+    const recurrentServices = servicePayments.filter(sp => sp.isRecurring);
+    
+    // Group recurrent services by name to get the latest settings
+    const uniqueRecurrents: Record<string, ServicePayment> = {};
+    recurrentServices.forEach(sp => {
+      if (!uniqueRecurrents[sp.service] || new Date(sp.createdAt) > new Date(uniqueRecurrents[sp.service].createdAt)) {
+        uniqueRecurrents[sp.service] = sp;
+      }
+    });
+
+    Object.values(uniqueRecurrents).forEach(service => {
+      const createdDate = new Date(service.createdAt);
+      const createdY = createdDate.getFullYear();
+      const createdM = createdDate.getMonth();
+
+      // Only plan for months equal to or after the original service registration month
+      const isLaterOrEqualMonth = (currentYear > createdY) || (currentYear === createdY && currentMonth >= createdM);
+      if (!isLaterOrEqualMonth) return;
+
+      // Check if there is already a paid service recorded for this service name in the visible month
+      const alreadyPaid = servicePayments.some(sp => {
+        const payDate = new Date(sp.createdAt);
+        return sp.service === service.service && 
+               payDate.getFullYear() === currentYear && 
+               payDate.getMonth() === currentMonth;
+      });
+
+      if (!alreadyPaid) {
+        // Inject a planned/upcoming service item
+        const day = service.recurringDay || 15;
+        const dateKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+        if (!groups[dateKey]) {
+          groups[dateKey] = [];
+        }
+
+        // Add to injected list
+        groups[dateKey].push({
+          id: `planned-recurrence-${service.service}-${dateKey}`,
+          type: 'servicio',
+          name: `${service.service} (Suscripción Planificada)`,
+          placeOrService: service.service,
+          priceOrAmount: service.amount,
+          quantity: 1,
+          category: 'servicios',
+          paymentMethod: service.paymentMethod,
+          createdAt: new Date(currentYear, currentMonth, day).toISOString()
+        });
+      }
+    });
+
     return groups;
-  }, [allActualExpenses, currentYear, currentMonth]);
+  }, [allActualExpenses, servicePayments, currentYear, currentMonth]);
 
   // Total summary for the current month
   const monthlyTotals = useMemo(() => {
@@ -413,8 +466,12 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                             </span>
                           )}
                           {exp.type === 'servicio' && (
-                            <span className="text-[10px] font-bold bg-indigo-600 text-white px-2 py-0.5 rounded-md shadow-xs">
-                              Servicio Recurrente
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xs ${
+                              exp.id.startsWith('planned-recurrence-') 
+                                ? 'bg-amber-500 text-white animate-pulse' 
+                                : 'bg-indigo-600 text-white'
+                            }`}>
+                              {exp.id.startsWith('planned-recurrence-') ? 'Suscripción Próxima (No Pagada)' : 'Servicio Registrado'}
                             </span>
                           )}
 

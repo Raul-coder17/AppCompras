@@ -26,6 +26,8 @@ export default function ServicePayments({
   const [amountInput, setAmountInput] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('tarjeta');
   const [newServiceName, setNewServiceName] = useState('');
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringDay, setRecurringDay] = useState(15);
 
   useEffect(() => {
     if (!services.length) {
@@ -57,11 +59,15 @@ export default function ServicePayments({
     onAddPayment({
       service: selectedService.trim(),
       amount,
-      paymentMethod
+      paymentMethod: paymentMethod as any,
+      isRecurring,
+      recurringDay: isRecurring ? recurringDay : undefined
     });
 
     setAmountInput('');
     setPaymentMethod('tarjeta');
+    setIsRecurring(false);
+    setRecurringDay(15);
   };
 
   const handleAddService = () => {
@@ -178,6 +184,42 @@ export default function ServicePayments({
           </div>
         </div>
 
+        {/* Recurrence Options */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-slate-800">¿Programar como Gasto Recurrente?</span>
+              <span className="text-[10px] text-slate-400 font-semibold">Se planificará automáticamente en los meses venideros</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsRecurring(!isRecurring)}
+              className={`w-10 h-6 flex items-center rounded-full p-0.5 transition-all duration-300 cursor-pointer ${
+                isRecurring ? 'bg-slate-900 justify-end' : 'bg-slate-300 justify-start'
+              }`}
+            >
+              <span className="w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-300" />
+            </button>
+          </div>
+
+          {isRecurring && (
+            <div className="flex items-center gap-3 pt-2 border-t border-slate-100 animate-in slide-in-from-top-2 duration-200">
+              <label htmlFor="input-recurring-day" className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                Día de cobro mensual:
+              </label>
+              <input
+                id="input-recurring-day"
+                type="number"
+                min="1"
+                max="31"
+                value={recurringDay}
+                onChange={(e) => setRecurringDay(Math.max(1, Math.min(31, parseInt(e.target.value) || 15)))}
+                className="w-16 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs text-center text-slate-800 font-bold focus:outline-none"
+              />
+            </div>
+          )}
+        </div>
+
         <button
           type="submit"
           className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-4 rounded-2xl transition duration-150 shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-95 text-sm"
@@ -207,6 +249,7 @@ export default function ServicePayments({
                   <p className="text-sm font-semibold text-slate-800">{payment.service}</p>
                   <p className="text-[11px] text-slate-400">
                     {new Date(payment.createdAt).toLocaleDateString('es-ES')} · {method?.name || 'Tarjeta'}
+                    {payment.isRecurring && ` · 🔁 Recurrente (Día ${payment.recurringDay})`}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

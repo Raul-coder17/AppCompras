@@ -30,6 +30,8 @@ export interface ServicePayment {
   amount: number;      // Monto pagado
   paymentMethod: PaymentMethod; // Metodo de pago
   createdAt: string;   // Fecha de registro
+  isRecurring?: boolean; // ¿Es recurrente/suscripción mensual?
+  recurringDay?: number; // Día del mes para el cobro (1 al 31)
 }
 
 export interface ArchivedItem extends ShoppingItem {

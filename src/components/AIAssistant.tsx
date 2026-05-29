@@ -22,7 +22,9 @@ import {
   CreditCard,
   ShoppingBag,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import { ShoppingItem, ArchivedItem, ServicePayment, Category, PaymentMethod, PREDEFINED_CATEGORIES } from '../types';
 import AIAssistantSettings, { GEMINI_MODELS } from './AIAssistantSettings';
@@ -109,6 +111,59 @@ export default function AIAssistant({
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [failoverAlert, setFailoverAlert] = useState<string | null>(null);
+
+  // Voice input state for Web Speech API
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'es-ES';
+
+      rec.onstart = () => {
+        setIsListening(true);
+      };
+
+      rec.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          setInputText(transcript);
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = rec;
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) {
+      alert('El reconocimiento de voz no está soportado en este navegador. Te recomendamos usar Google Chrome o Safari.');
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      try {
+        recognitionRef.current.start();
+      } catch (err) {
+        console.error('Error starting recognition:', err);
+      }
+    }
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -1086,6 +1141,20 @@ Reglas importantes:
                     capture="environment"
                     className="hidden"
                   />
+
+                  {/* Microphone speech recognition button */}
+                  <button
+                    type="button"
+                    onClick={toggleListening}
+                    className={`p-2.5 rounded-xl border transition cursor-pointer shrink-0 ${
+                      isListening
+                        ? 'bg-rose-500 border-rose-500 text-white animate-pulse shadow-md shadow-rose-200 scale-105'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 border-slate-200'
+                    }`}
+                    title={isListening ? "Detener grabación de voz" : "Grabar comando por voz"}
+                  >
+                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
 
                   {/* Main Input Text */}
                   <input

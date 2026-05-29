@@ -78,8 +78,32 @@ export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps)
   const remainingCash = cashBudget - cashSpent;
   const remainingCard = cardBudget - cardSpent;
 
+  const getContainerStyle = () => {
+    if (percentTotal >= 100) return 'border-2 border-rose-500 shadow-xl shadow-rose-50/50 ring-4 ring-rose-100 bg-rose-50/5 transition-all duration-300';
+    if (percentTotal >= 80) return 'border-2 border-amber-500 shadow-xl shadow-amber-50/50 ring-4 ring-amber-100 bg-amber-50/5 transition-all duration-300';
+    return 'border border-slate-200/85 hover:shadow-md transition-all duration-300';
+  };
+
   return (
-    <div className="glass-card rounded-3xl overflow-hidden" id="budget-card-container">
+    <div className={`glass-card rounded-3xl overflow-hidden ${getContainerStyle()}`} id="budget-card-container">
+      {/* Smart-Cap Budget threshold alerts */}
+      {percentTotal >= 100 && (
+        <div className="bg-gradient-to-r from-rose-500 to-red-600 text-white px-6 py-2.5 flex items-center justify-between text-xs font-black tracking-wide animate-pulse">
+          <span className="flex items-center gap-2">
+            <span>🚨</span> ¡PRESUPUESTO EXCEDIDO! Revisa tus planes y compras pendientes.
+          </span>
+          <span className="bg-rose-700/80 px-2 py-0.5 rounded text-[10px]">Alerta Crítica</span>
+        </div>
+      )}
+      {percentTotal >= 80 && percentTotal < 100 && (
+        <div className="bg-gradient-to-r from-amber-400 to-amber-500 text-slate-900 px-6 py-2.5 flex items-center justify-between text-xs font-black tracking-wide">
+          <span className="flex items-center gap-2">
+            <span>⚠️</span> ADVERTENCIA: Has comprometido más del 80% de tu presupuesto.
+          </span>
+          <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px]">Alerta Preventiva</span>
+        </div>
+      )}
+
       {/* Header section with interactive Available Capital input */}
       <div className="p-6 md:p-8 bg-slate-50/50 border-b border-slate-100">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -266,12 +290,16 @@ export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps)
         {/* Dynamic Multi-segment progress bar */}
         <div className="mt-7 w-full bg-slate-200 h-3 rounded-full overflow-hidden flex shadow-inner" id="budget-progress-bar">
           <div 
-            className="bg-emerald-500 h-full transition-all duration-500 ease-out" 
+            className={`h-full transition-all duration-500 ease-out ${
+              percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+            }`} 
             style={{ width: `${percentSpent}%` }}
             title={`Comprado: ${percentSpent}%`}
           />
           <div 
-            className="bg-amber-400 h-full transition-all duration-500 ease-out" 
+            className={`h-full transition-all duration-500 ease-out ${
+              percentTotal >= 100 ? 'bg-rose-450' : 'bg-amber-400'
+            }`} 
             style={{ width: `${percentPlanned}%` }}
             title={`Planificado: ${percentPlanned}%`}
           />
@@ -281,11 +309,15 @@ export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps)
         <div className="flex justify-between items-center mt-3 text-xs text-slate-600 px-0.5 font-semibold">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+              <span className={`w-3 h-3 rounded-full inline-block ${
+                percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+              }`}></span>
               Comprado ({percentSpent}%)
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-amber-400 inline-block"></span>
+              <span className={`w-3 h-3 rounded-full inline-block ${
+                percentTotal >= 100 ? 'bg-rose-400' : 'bg-amber-400'
+              }`}></span>
               Planificado ({percentPlanned}%)
             </span>
           </div>

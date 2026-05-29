@@ -12,7 +12,8 @@ import {
   User, 
   Heart,
   ExternalLink,
-  Calendar
+  Calendar,
+  BarChart3
 } from 'lucide-react';
 import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS, ServicePayment, PREDEFINED_SERVICES } from './types';
 import BudgetCard from './components/BudgetCard';
@@ -21,6 +22,7 @@ import StoreSummary from './components/StoreSummary';
 import PurchaseList from './components/PurchaseList';
 import ServicePayments from './components/ServicePayments';
 import ExpenseCalendar from './components/ExpenseCalendar';
+import ExpenseCharts from './components/ExpenseCharts';
 import AIAssistant from './components/AIAssistant';
 
 // Initial demo data to showcase calculating capabilities immediately
@@ -96,7 +98,7 @@ export default function App() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [categories, setCategories] = useState(PREDEFINED_CATEGORIES);
-  const [activeTab, setActiveTab] = useState<'list' | 'calendar'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'calendar' | 'charts'>('list');
 
   // 1. Initial State Load from LocalStorage
   useEffect(() => {
@@ -502,28 +504,39 @@ export default function App() {
         
         {/* Navigation Tabs - Modern Glass Switch */}
         <div className="flex justify-center mb-8" id="view-mode-tabs">
-          <div className="bg-slate-200/60 p-1.5 rounded-2xl flex items-center gap-1 border border-slate-300/40 backdrop-blur-xs max-w-md w-full sm:w-auto shadow-xs">
+          <div className="bg-slate-200/60 p-1.5 rounded-2xl flex items-center gap-1 border border-slate-300/40 backdrop-blur-xs max-w-2xl w-full sm:w-auto shadow-xs">
             <button
               onClick={() => setActiveTab('list')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
                 activeTab === 'list' 
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
               }`}
             >
-              <ShoppingBag className="w-4.5 h-4.5" />
+              <ShoppingBag className="w-4.5 h-4.5 text-slate-700" />
               <span>Lista de Compras</span>
             </button>
             <button
               onClick={() => setActiveTab('calendar')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
                 activeTab === 'calendar' 
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
               }`}
             >
-              <Calendar className="w-4.5 h-4.5 text-slate-950" />
+              <Calendar className="w-4.5 h-4.5 text-slate-700" />
               <span>Calendario Mensual</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('charts')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+                activeTab === 'charts' 
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+              }`}
+            >
+              <BarChart3 className="w-4.5 h-4.5 text-slate-700" />
+              <span>Gráficos Analíticos</span>
             </button>
           </div>
         </div>
@@ -587,11 +600,21 @@ export default function App() {
             </div>
 
           </div>
-        ) : (
+        ) : activeTab === 'calendar' ? (
           <div className="animate-in fade-in duration-200">
             <ExpenseCalendar 
               items={items} 
               servicePayments={servicePayments} 
+            />
+          </div>
+        ) : (
+          <div className="animate-in fade-in duration-200">
+            <ExpenseCharts
+              items={items}
+              servicePayments={servicePayments}
+              categories={categories}
+              cashBudget={cashBudget}
+              cardBudget={cardBudget}
             />
           </div>
         )}
