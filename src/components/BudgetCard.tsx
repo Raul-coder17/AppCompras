@@ -306,22 +306,22 @@ export default function BudgetCard({ summary, onUpdateBudget }: BudgetCardProps)
         </div>
         
         {/* Progress legend */}
-        <div className="flex justify-between items-center mt-3 text-xs text-slate-600 px-0.5 font-semibold">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mt-3.5 text-xs text-slate-600 px-0.5 font-semibold">
+          <div className="flex flex-wrap items-center gap-3.5">
             <span className="flex items-center gap-1.5">
-              <span className={`w-3 h-3 rounded-full inline-block ${
+              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${
                 percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
               }`}></span>
               Comprado ({percentSpent}%)
             </span>
             <span className="flex items-center gap-1.5">
-              <span className={`w-3 h-3 rounded-full inline-block ${
+              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${
                 percentTotal >= 100 ? 'bg-rose-400' : 'bg-amber-400'
               }`}></span>
               Planificado ({percentPlanned}%)
             </span>
           </div>
-          <span>Presupuesto total</span>
+          <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">Presupuesto total</span>
         </div>
       </div>
 

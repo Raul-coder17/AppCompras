@@ -339,11 +339,15 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
         
         {/* Days of Week Headers */}
         <div className="grid grid-cols-7 gap-2 mb-3">
-          {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((day) => (
-            <div key={day} className="text-center py-2 text-xs font-black text-slate-800 uppercase tracking-wider">
-              {day}
-            </div>
-          ))}
+          {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((day, idx) => {
+            const fullNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+            return (
+              <div key={idx} className="text-center py-2 text-[10px] sm:text-xs font-black text-slate-800 uppercase tracking-wider">
+                <span className="inline sm:hidden">{day}</span>
+                <span className="hidden sm:inline">{fullNames[idx]}</span>
+              </div>
+            );
+          })}
         </div>
 
         {/* Days Grid */}
@@ -359,12 +363,12 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                 disabled={!cell.isCurrentMonth}
                 onClick={() => cell.isCurrentMonth && setSelectedDayKey(cell.dateKey)}
                 className={`
-                  relative min-h-[76px] md:min-h-[92px] p-2 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 group
+                  relative min-h-[60px] sm:min-h-[84px] p-1.5 sm:p-2 rounded-xl sm:rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 group
                   ${cell.isCurrentMonth 
                     ? 'bg-white border-slate-200 hover:border-slate-400 cursor-pointer' 
                     : 'bg-slate-50/50 border-slate-100 text-slate-300 cursor-not-allowed select-none'
                   }
-                  ${isToday && cell.isCurrentMonth ? 'ring-2.5 ring-slate-900 border-transparent shadow-xs' : ''}
+                  ${isToday && cell.isCurrentMonth ? 'ring-2 ring-slate-900 border-transparent shadow-xs' : ''}
                   ${isSelected ? 'border-slate-950 bg-slate-50 shadow-xs' : ''}
                   ${hasExpenses && cell.isCurrentMonth ? 'hover:bg-slate-50/80' : ''}
                 `}
@@ -372,7 +376,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                 {/* Day number */}
                 <div className="flex items-center justify-between w-full">
                   <span className={`
-                    text-xs font-bold px-1.5 py-0.5 rounded-md
+                    text-[10px] sm:text-xs font-bold px-1 sm:px-1.5 py-0.5 rounded-md
                     ${cell.isCurrentMonth ? 'text-slate-800' : 'text-slate-300'}
                     ${isToday ? 'bg-slate-900 text-white font-extrabold' : ''}
                   `}>
@@ -380,13 +384,13 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                   </span>
                   
                   {/* Today dot indicator */}
-                  {isToday && <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" title="Hoy" />}
+                  {isToday && <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-rose-500 rounded-full" title="Hoy" />}
                 </div>
 
                 {/* Day Expense Badge */}
                 {cell.isCurrentMonth && hasExpenses && (
-                  <div className="mt-2 text-right">
-                    <span className="inline-block text-[9px] md:text-[10px] font-black bg-slate-900 text-emerald-400 px-2 py-1 rounded-lg shadow-xs group-hover:scale-105 transition duration-150">
+                  <div className="mt-1.5 text-right w-full overflow-hidden">
+                    <span className="inline-block text-[7px] sm:text-[10px] font-black bg-slate-900 text-emerald-400 px-1 sm:px-2 py-0.5 sm:py-1 rounded-md sm:rounded-lg shadow-xs group-hover:scale-105 transition duration-150 truncate max-w-full">
                       ${cell.totalSpent.toFixed(0)}
                     </span>
                   </div>

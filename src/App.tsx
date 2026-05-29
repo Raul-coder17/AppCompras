@@ -463,21 +463,21 @@ export default function App() {
       
       {/* Upper Navigation / Title Block with Minimal Elements */}
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/50 shadow-xs sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           
           {/* Logo Brand Title */}
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-sm" id="app-logo-bg">
-              <ShoppingBag className="w-5.5 h-5.5 text-emerald-400 stroke-[2.5]" />
+          <div className="flex items-center gap-2 sm:gap-3.5">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 bg-slate-900 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shadow-sm shrink-0" id="app-logo-bg">
+              <ShoppingBag className="w-4.5 h-4.5 sm:w-5.5 sm:h-5.5 text-emerald-400 stroke-[2.5]" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none">Cuentas Compras</h1>
-              <p className="text-xs text-slate-500 font-semibold mt-1">Gestión & Control de Presupuestos</p>
+              <h1 className="text-sm sm:text-xl font-black text-slate-900 tracking-tight leading-none">Cuentas Compras</h1>
+              <p className="hidden md:block text-xs text-slate-500 font-semibold mt-1">Gestión & Control de Presupuestos</p>
             </div>
           </div>
 
           {/* User profile identifier & Quick reset/csv actions */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             
             {/* User chip */}
             <button
@@ -485,18 +485,18 @@ export default function App() {
                 setTempName(userName);
                 setIsNameModalOpen(true);
               }}
-              className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 px-3.5 py-2 rounded-full border border-slate-200 hover:border-slate-350 text-xs text-slate-700 font-extrabold cursor-pointer transition-all shadow-xs active:scale-95 select-none"
+              className="flex items-center gap-1 sm:gap-2 bg-slate-50 hover:bg-slate-100 px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-full border border-slate-200 hover:border-slate-355 text-[10px] sm:text-xs text-slate-700 font-extrabold cursor-pointer transition-all shadow-xs active:scale-95 select-none shrink-0"
               title="Cambiar tu nombre de usuario"
               id="user-profile-chip"
             >
-              <User className="w-4 h-4 text-slate-500 shrink-0" />
-              <span>Hola, <span className="text-emerald-600 font-black">{userName}</span></span>
+              <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />
+              <span><span className="hidden sm:inline">Hola, </span><span className="text-emerald-600 font-black">{userName}</span></span>
             </button>
 
             {/* Export CSV action button */}
             <button
               onClick={handleExportData}
-              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shadow-xs cursor-pointer active:scale-95"
+              className="p-2 sm:px-4 sm:py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
               title="Exportar compras completas a Excel / CSV"
               id="export-csv-btn"
             >
@@ -507,11 +507,11 @@ export default function App() {
             {/* Reiniciar demo seed values */}
             <button
               onClick={handleResetData}
-              className="p-2.5 bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl transition-all cursor-pointer active:scale-95"
+              className="p-2 sm:p-2.5 bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl transition-all cursor-pointer active:scale-95 shrink-0"
               title="Restablecer base de datos"
               id="reset-raw-db"
             >
-              <RotateCcw className="w-4.5 h-4.5" />
+              <RotateCcw className="w-4 sm:w-4.5 h-4 sm:h-4.5" />
             </button>
 
           </div>
@@ -523,39 +523,48 @@ export default function App() {
         
         {/* Navigation Tabs - Modern Glass Switch */}
         <div className="flex justify-center mb-8" id="view-mode-tabs">
-          <div className="bg-slate-200/60 p-1.5 rounded-2xl flex items-center gap-1 border border-slate-300/40 backdrop-blur-xs max-w-2xl w-full sm:w-auto shadow-xs">
+          <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-2xl w-full sm:w-auto shadow-xs">
             <button
               onClick={() => setActiveTab('list')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
                 activeTab === 'list' 
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
               }`}
             >
-              <ShoppingBag className="w-4.5 h-4.5 text-slate-700" />
-              <span>Lista de Compras</span>
+              <ShoppingBag className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
+              <span>
+                <span className="inline sm:hidden">Lista</span>
+                <span className="hidden sm:inline">Lista de Compras</span>
+              </span>
             </button>
             <button
               onClick={() => setActiveTab('calendar')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
                 activeTab === 'calendar' 
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
               }`}
             >
-              <Calendar className="w-4.5 h-4.5 text-slate-700" />
-              <span>Calendario Mensual</span>
+              <Calendar className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
+              <span>
+                <span className="inline sm:hidden">Calendario</span>
+                <span className="hidden sm:inline">Calendario Mensual</span>
+              </span>
             </button>
             <button
               onClick={() => setActiveTab('charts')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
                 activeTab === 'charts' 
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
               }`}
             >
-              <BarChart3 className="w-4.5 h-4.5 text-slate-700" />
-              <span>Gráficos Analíticos</span>
+              <BarChart3 className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
+              <span>
+                <span className="inline sm:hidden">Gráficos</span>
+                <span className="hidden sm:inline">Gráficos Analíticos</span>
+              </span>
             </button>
           </div>
         </div>
