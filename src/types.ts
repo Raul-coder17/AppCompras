@@ -24,6 +24,14 @@ export interface ShoppingItem {
   createdAt: string;  // Fecha de creación
 }
 
+export interface ServicePayment {
+  id: string;
+  service: string;     // Servicio (Uber, Didi, Internet, etc.)
+  amount: number;      // Monto pagado
+  paymentMethod: PaymentMethod; // Metodo de pago
+  createdAt: string;   // Fecha de registro
+}
+
 export interface ArchivedItem extends ShoppingItem {
   deletedAt: string; // Fecha de archivado en historial
 }
@@ -64,4 +72,18 @@ export const PREDEFINED_PLACES = [
   'Farmacia',
   'Ropa & Calzado',
   'Otro lugar'
+];
+
+export const PREDEFINED_SERVICES = [
+  'Uber',
+  'Didi',
+  'Rappi',
+  'Netflix',
+  'Spotify',
+  'Internet',
+  'Luz',
+  'Agua',
+  'Gas',
+  'Celular',
+  'Otro servicio'
 ];

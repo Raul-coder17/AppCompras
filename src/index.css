@@ -1,14 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
 @import "tailwindcss";
 
 @theme {
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Outfit', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+/* Custom Base Styles for Premium Aesthetics & Accessibility */
 body {
   font-family: var(--font-sans);
-  background-color: #F8FAFC;
-  color: #1E293B;
+  background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
+  color: #0F172A; /* High contrast dark blue-gray text for better legibility */
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
 }
 
+/* High Contrast & Clean Inputs for Older Adults */
+input, select, textarea {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 14px !important; /* Extremely legible font size on both mobile & desktop */
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #0F172A !important;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1) !important;
+  transform: translateY(-1px);
+}
+
+/* Elegant Glassmorphism Cards & Subtle Animations */
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(241, 245, 249, 0.9);
+  box-shadow: 0 4px 20px -2px rgba(148, 163, 184, 0.12), 0 2px 8px -1px rgba(148, 163, 184, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  box-shadow: 0 10px 25px -3px rgba(148, 163, 184, 0.18), 0 4px 12px -2px rgba(148, 163, 184, 0.12);
+  transform: translateY(-2px);
+}
+
+/* Easy to Tap Buttons - Mobile and Senior Friendly */
+button, a {
+  min-height: 38px; /* Safe touch target height for older adults */
+  touch-action: manipulation;
+}
+
+/* Beautiful custom premium scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* Smooth custom bounce & transitions */
+.smooth-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.smooth-hover:hover {
+  transform: scale(1.02);
+}
+
+.smooth-hover:active {
+  transform: scale(0.98);
+}

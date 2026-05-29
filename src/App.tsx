@@ -11,13 +11,17 @@ import {
   FileText, 
   User, 
   Heart,
-  ExternalLink
+  ExternalLink,
+  Calendar
 } from 'lucide-react';
-import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS } from './types';
+import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS, ServicePayment, PREDEFINED_SERVICES } from './types';
 import BudgetCard from './components/BudgetCard';
 import AddItemForm from './components/AddItemForm';
 import StoreSummary from './components/StoreSummary';
 import PurchaseList from './components/PurchaseList';
+import ServicePayments from './components/ServicePayments';
+import ExpenseCalendar from './components/ExpenseCalendar';
+import AIAssistant from './components/AIAssistant';
 
 // Initial demo data to showcase calculating capabilities immediately
 const DEFAULT_BUDGET = 350.00;
@@ -83,13 +87,16 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
 export default function App() {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [archivedItems, setArchivedItems] = useState<ArchivedItem[]>([]);
+  const [servicePayments, setServicePayments] = useState<ServicePayment[]>([]);
   const [cashBudget, setCashBudget] = useState<number>(0);
   const [cardBudget, setCardBudget] = useState<number>(DEFAULT_BUDGET);
   const [places, setPlaces] = useState<string[]>([]);
+  const [serviceOptions, setServiceOptions] = useState<string[]>(PREDEFINED_SERVICES);
   const [selectedStoreFilter, setSelectedStoreFilter] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [categories, setCategories] = useState(PREDEFINED_CATEGORIES);
+  const [activeTab, setActiveTab] = useState<'list' | 'calendar'>('list');
 
   // 1. Initial State Load from LocalStorage
   useEffect(() => {
@@ -101,6 +108,8 @@ export default function App() {
       const storedCategories = localStorage.getItem('cobuy_categories');
       const storedArchivedItems = localStorage.getItem('cobuy_archived_items');
       const storedPlaces = localStorage.getItem('cobuy_places');
+      const storedServicePayments = localStorage.getItem('cobuy_service_payments');
+      const storedServices = localStorage.getItem('cobuy_services');
 
       if (storedItems) {
         const parsedItems = JSON.parse(storedItems) as ShoppingItem[];
@@ -130,6 +139,23 @@ export default function App() {
         setPlaces([]);
       }
 
+      if (storedServicePayments) {
+        const parsedPayments = JSON.parse(storedServicePayments) as ServicePayment[];
+        const normalizedPayments = parsedPayments.map((payment) => ({
+          ...payment,
+          paymentMethod: payment.paymentMethod || DEFAULT_PAYMENT_METHOD
+        }));
+        setServicePayments(normalizedPayments);
+      } else {
+        setServicePayments([]);
+      }
+
+      if (storedServices) {
+        setServiceOptions(JSON.parse(storedServices));
+      } else {
+        setServiceOptions(PREDEFINED_SERVICES);
+      }
+
       if (storedCategories) {
         setCategories(JSON.parse(storedCategories));
       } else {
@@ -154,6 +180,8 @@ export default function App() {
       setCardBudget(DEFAULT_BUDGET);
       setCategories(PREDEFINED_CATEGORIES);
       setPlaces([]);
+      setServicePayments([]);
+      setServiceOptions(PREDEFINED_SERVICES);
     } finally {
       setIsInitialized(true);
     }
@@ -205,6 +233,24 @@ export default function App() {
       console.error("Error al guardar lugares en localStorage", e);
     }
   }, [places, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_service_payments', JSON.stringify(servicePayments));
+    } catch (e) {
+      console.error("Error al guardar pagos de servicios en localStorage", e);
+    }
+  }, [servicePayments, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_services', JSON.stringify(serviceOptions));
+    } catch (e) {
+      console.error("Error al guardar servicios en localStorage", e);
+    }
+  }, [serviceOptions, isInitialized]);
 
   // Core Mutation Actions
   const handleAddItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
@@ -297,6 +343,29 @@ export default function App() {
     setPlaces((prev) => [trimmedName, ...prev]);
   };
 
+  const handleAddServicePayment = (paymentData: Omit<ServicePayment, 'id' | 'createdAt'>) => {
+    const newPayment: ServicePayment = {
+      ...paymentData,
+      id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      createdAt: new Date().toISOString()
+    };
+    setServicePayments((prev) => [newPayment, ...prev]);
+    if (paymentData.service && !serviceOptions.some((service) => service.toLowerCase() === paymentData.service.toLowerCase())) {
+      setServiceOptions((prev) => [paymentData.service, ...prev]);
+    }
+  };
+
+  const handleDeleteServicePayment = (id: string) => {
+    setServicePayments((prev) => prev.filter((payment) => payment.id !== id));
+  };
+
+  const handleAddServiceOption = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    if (serviceOptions.some((service) => service.toLowerCase() === trimmedName.toLowerCase())) return;
+    setServiceOptions((prev) => [trimmedName, ...prev]);
+  };
+
   // Reset shopping database completely
   const handleResetData = () => {
     setIsResetModalOpen(true);
@@ -305,10 +374,12 @@ export default function App() {
   const handleConfirmReset = () => {
     setItems([]);
     setArchivedItems([]);
+    setServicePayments([]);
     setCashBudget(0);
     setCardBudget(0);
     setSelectedStoreFilter(null);
     setPlaces([]);
+    setServiceOptions(PREDEFINED_SERVICES);
     setIsResetModalOpen(false);
   };
 
@@ -342,15 +413,21 @@ export default function App() {
   };
 
   // Compute stats in real-time (vaya haciendo cuentas de todo)
-  const spent = items.reduce((acc, curr) => acc + (curr.bought ? curr.price * curr.quantity : 0), 0);
+  const itemsSpent = items.reduce((acc, curr) => acc + (curr.bought ? curr.price * curr.quantity : 0), 0);
   const planned = items.reduce((acc, curr) => acc + (!curr.bought ? curr.price * curr.quantity : 0), 0);
+  const servicesSpent = servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
+  const spent = itemsSpent + servicesSpent;
   const totalBudget = cashBudget + cardBudget;
   const remaining = totalBudget - spent;
 
-  const cashSpent = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
+  const cashSpentItems = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
   const cashPlanned = items.reduce((acc, curr) => acc + (!curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
-  const cardSpent = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
+  const cardSpentItems = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
   const cardPlanned = items.reduce((acc, curr) => acc + (!curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
+  const cashSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod === 'efectivo' ? curr.amount : 0), 0);
+  const cardSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod !== 'efectivo' ? curr.amount : 0), 0);
+  const cashSpent = cashSpentItems + cashSpentServices;
+  const cardSpent = cardSpentItems + cardSpentServices;
 
   const budgetSummary: BudgetSummary = {
     totalBudget,
@@ -369,20 +446,20 @@ export default function App() {
   const existingPlaces: string[] = places.map((place) => place.trim()).filter(Boolean) as string[];
 
   return (
-    <div className="min-h-screen bg-slate-50/60 pb-16 flex flex-col font-sans" id="app-root-layout">
+    <div className="min-h-screen bg-[#F8FAFC] pb-16 flex flex-col font-sans" id="app-root-layout">
       
       {/* Upper Navigation / Title Block with Minimal Elements */}
-      <header className="bg-white border-b border-slate-100 shadow-sm sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/50 shadow-xs sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           
           {/* Logo Brand Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white" id="app-logo-bg">
-              <ShoppingBag className="w-5 h-5 text-emerald-400 stroke-[2.5]" />
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-sm" id="app-logo-bg">
+              <ShoppingBag className="w-5.5 h-5.5 text-emerald-400 stroke-[2.5]" />
             </div>
             <div>
-              <h1 className="text-lg font-extrabold text-slate-900 tracking-tight leading-none">Cuentas Compras</h1>
-              <p className="text-[10px] text-slate-400 font-medium md:mt-1">Gestión & Control de Presupuestos</p>
+              <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none">Cuentas Compras</h1>
+              <p className="text-xs text-slate-500 font-semibold mt-1">Gestión & Control de Presupuestos</p>
             </div>
           </div>
 
@@ -390,30 +467,30 @@ export default function App() {
           <div className="flex items-center gap-2 sm:gap-3">
             
             {/* User chip */}
-            <div className="hidden md:flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100 text-xs text-slate-600 font-medium">
-              <User className="w-3.5 h-3.5 text-slate-400" />
+            <div className="hidden md:flex items-center gap-2 bg-slate-50 px-3.5 py-2 rounded-full border border-slate-200/60 text-xs text-slate-700 font-bold">
+              <User className="w-4 h-4 text-slate-500" />
               <span>Mi Perfil</span>
             </div>
 
             {/* Export CSV action button */}
             <button
               onClick={handleExportData}
-              className="px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 hover:border-slate-350 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shadow-xs cursor-pointer active:scale-95"
               title="Exportar compras completas a Excel / CSV"
               id="export-csv-btn"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Exportar CSV</span>
             </button>
 
             {/* Reiniciar demo seed values */}
             <button
               onClick={handleResetData}
-              className="p-2 bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl transition cursor-pointer"
+              className="p-2.5 bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl transition-all cursor-pointer active:scale-95"
               title="Restablecer base de datos"
               id="reset-raw-db"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-4.5 h-4.5" />
             </button>
 
           </div>
@@ -422,56 +499,102 @@ export default function App() {
 
       {/* Main Body Grid Dashboard */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* LEFT 2 COLS: Budget Metrics Board & Purchase List */}
-          <div className="lg:col-span-2 space-y-8 flex flex-col">
-            
-            {/* Top metrics with inline customizable budget cap */}
-            <BudgetCard 
-              summary={budgetSummary} 
-              onUpdateBudget={handleUpdateBudget} 
-            />
-
-            {/* List with rich actions: edit inline, check toggles, filters, sorts */}
-            <div className="flex-grow">
-              <PurchaseList 
-                items={items}
-                archivedItems={archivedItems}
-                selectedStoreFilter={selectedStoreFilter}
-                onToggleBought={handleToggleBought}
-                onDeleteItem={handleDeleteItem}
-                onUpdateItem={handleUpdateItem}
-                onRestoreItem={handleRestoreItem}
-                onPurgeArchivedItem={handlePurgeArchivedItem}
-                categories={categories}
-              />
-            </div>
-            
+        
+        {/* Navigation Tabs - Modern Glass Switch */}
+        <div className="flex justify-center mb-8" id="view-mode-tabs">
+          <div className="bg-slate-200/60 p-1.5 rounded-2xl flex items-center gap-1 border border-slate-300/40 backdrop-blur-xs max-w-md w-full sm:w-auto shadow-xs">
+            <button
+              onClick={() => setActiveTab('list')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+                activeTab === 'list' 
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+              }`}
+            >
+              <ShoppingBag className="w-4.5 h-4.5" />
+              <span>Lista de Compras</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('calendar')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+                activeTab === 'calendar' 
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+              }`}
+            >
+              <Calendar className="w-4.5 h-4.5 text-slate-950" />
+              <span>Calendario Mensual</span>
+            </button>
           </div>
-
-          {/* RIGHT 1 COL: Planning form & Store ledger aggregates */}
-          <div className="space-y-8">
-            
-            {/* Dynamic Interactive Input form */}
-            <AddItemForm 
-              onAddItem={handleAddItem} 
-              existingPlaces={existingPlaces}
-              onAddPlace={handleAddPlace}
-              categories={categories}
-              onAddCategory={handleAddCategory}
-            />
-
-            {/* Aggregated store financial sums ("haciendo cuentas por lugar") */}
-            <StoreSummary 
-              items={items}
-              selectedStoreFilter={selectedStoreFilter}
-              onSelectStoreFilter={setSelectedStoreFilter}
-            />
-
-          </div>
-
         </div>
+
+        {activeTab === 'list' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-200">
+            
+            {/* LEFT 2 COLS: Budget Metrics Board & Purchase List */}
+            <div className="lg:col-span-2 space-y-8 flex flex-col">
+              
+              {/* Top metrics with inline customizable budget cap */}
+              <BudgetCard 
+                summary={budgetSummary} 
+                onUpdateBudget={handleUpdateBudget} 
+              />
+
+              {/* List with rich actions: edit inline, check toggles, filters, sorts */}
+              <div className="flex-grow">
+                <PurchaseList 
+                  items={items}
+                  archivedItems={archivedItems}
+                  selectedStoreFilter={selectedStoreFilter}
+                  onToggleBought={handleToggleBought}
+                  onDeleteItem={handleDeleteItem}
+                  onUpdateItem={handleUpdateItem}
+                  onRestoreItem={handleRestoreItem}
+                  onPurgeArchivedItem={handlePurgeArchivedItem}
+                  categories={categories}
+                />
+              </div>
+              
+            </div>
+
+            {/* RIGHT 1 COL: Planning form & Store ledger aggregates */}
+            <div className="space-y-8">
+              
+              {/* Dynamic Interactive Input form */}
+              <AddItemForm 
+                onAddItem={handleAddItem} 
+                existingPlaces={existingPlaces}
+                onAddPlace={handleAddPlace}
+                categories={categories}
+                onAddCategory={handleAddCategory}
+              />
+
+              <ServicePayments
+                payments={servicePayments}
+                services={serviceOptions}
+                onAddPayment={handleAddServicePayment}
+                onDeletePayment={handleDeleteServicePayment}
+                onAddService={handleAddServiceOption}
+              />
+
+              {/* Aggregated store financial sums ("haciendo cuentas por lugar") */}
+              <StoreSummary 
+                items={items}
+                selectedStoreFilter={selectedStoreFilter}
+                onSelectStoreFilter={setSelectedStoreFilter}
+              />
+
+            </div>
+
+          </div>
+        ) : (
+          <div className="animate-in fade-in duration-200">
+            <ExpenseCalendar 
+              items={items} 
+              servicePayments={servicePayments} 
+            />
+          </div>
+        )}
       </main>
 
       {/* Clean Subtle Page Footer */}
@@ -520,6 +643,29 @@ export default function App() {
           </div>
         </div>
       )}
+      <AIAssistant
+        items={items}
+        archivedItems={archivedItems}
+        servicePayments={servicePayments}
+        cashBudget={cashBudget}
+        cardBudget={cardBudget}
+        categories={categories}
+        places={places}
+        serviceOptions={serviceOptions}
+        onAddItem={handleAddItem}
+        onToggleBought={handleToggleBought}
+        onDeleteItem={handleDeleteItem}
+        onUpdateItem={handleUpdateItem}
+        onUpdateBudget={handleUpdateBudget}
+        onAddServicePayment={handleAddServicePayment}
+        onDeleteServicePayment={handleDeleteServicePayment}
+        onAddCategory={handleAddCategory}
+        onAddPlace={handleAddPlace}
+        onAddServiceOption={handleAddServiceOption}
+        onRestoreItem={handleRestoreItem}
+        onPurgeArchivedItem={handlePurgeArchivedItem}
+        onResetDatabase={handleConfirmReset}
+      />
 
     </div>
   );

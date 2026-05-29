@@ -148,18 +148,18 @@ export default function PurchaseList({
   });
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm flex flex-col h-full" id="purchase-list-container">
+    <div className="glass-card rounded-3xl p-6 md:p-8 flex flex-col h-full" id="purchase-list-container">
       
       {/* Title & Filter Info */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
-          <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <ListTodo className="w-5 h-5 text-indigo-600" />
+          <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+            <ListTodo className="w-5.5 h-5.5 text-slate-900" />
             Lista de Compras
           </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-500 font-semibold mt-1">
             {selectedStoreFilter ? (
-              <span>Mostrando compras para: <strong className="text-slate-800">{selectedStoreFilter}</strong></span>
+              <span>Mostrando compras para: <strong className="text-slate-900">{selectedStoreFilter}</strong></span>
             ) : (
               <span>Todos los artículos planificados</span>
             )}
@@ -167,18 +167,18 @@ export default function PurchaseList({
         </div>
 
         {/* Dynamic mini accounts of visible subset */}
-        <div className="flex items-center gap-3 bg-slate-100/60 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-600 shrink-0 w-full sm:w-auto" id="list-subset-totals">
+        <div className="flex items-center gap-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl px-4.5 py-3 text-xs text-slate-700 shrink-0 w-full sm:w-auto shadow-xs" id="list-subset-totals">
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Total en Pantalla</span>
-            <span className="font-extrabold text-slate-800 text-sm">
+            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Total en Pantalla</span>
+            <span className="font-black text-slate-900 text-base">
               ${filteredTotalValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
-          <div className="h-6 w-[1px] bg-slate-200"></div>
+          <div className="h-7 w-[1px] bg-slate-250"></div>
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Progreso</span>
-            <span className="font-semibold text-slate-600">
-              {boughtCount}/{totalCount} comprobados
+            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Progreso</span>
+            <span className="font-bold text-slate-700 text-sm">
+              {boughtCount} / {totalCount} listos
             </span>
           </div>
         </div>

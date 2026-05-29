@@ -98,20 +98,20 @@ export default function AddItemForm({ onAddItem, existingPlaces, categories, onA
   const draftTotal = currentPrice * quantity;
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm" id="add-item-form-container">
-      <div className="flex items-center justify-between gap-3 mb-5">
-        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 text-sm font-bold">+</span>
+    <div className="glass-card rounded-3xl p-6 md:p-8" id="add-item-form-container">
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-slate-900 text-white text-sm font-black shadow-xs">+</span>
           Planificar Nueva Compra
         </h3>
         <button
           type="button"
           onClick={() => setIsBulkMode((prev) => !prev)}
-          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-            isBulkMode ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-600 border-slate-200'
+          className={`px-3.5 py-2 rounded-full text-xs font-black border transition cursor-pointer active:scale-95 ${
+            isBulkMode ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-700 border-slate-200'
           }`}
         >
-          {isBulkMode ? 'Modo rapido' : 'Lista rapida'}
+          {isBulkMode ? 'Modo rápido' : 'Lista rápida'}
         </button>
       </div>
 
@@ -337,14 +337,14 @@ export default function AddItemForm({ onAddItem, existingPlaces, categories, onA
         </div>
 
         {/* Cost Estimation Preview */}
-        <div className="p-4 bg-slate-100/60 rounded-2xl border border-slate-200 flex items-center justify-between text-xs text-slate-600" id="form-estimate-preview">
-          <span className="flex items-center gap-1.5 font-medium">
-            <Info className="w-3.5 h-3.5 text-slate-400" />
+        <div className="p-4.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between text-xs text-slate-700" id="form-estimate-preview">
+          <span className="flex items-center gap-1.5 font-bold">
+            <Info className="w-4.5 h-4.5 text-slate-500" />
             Cálculo estimado:
           </span>
-          <span className="font-bold text-slate-800 text-sm">
+          <span className="font-extrabold text-slate-900 text-sm">
             {quantity} × ${currentPrice.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = 
-            <span className="text-indigo-600 ml-1">
+            <span className="text-slate-950 ml-1 bg-slate-200/60 px-2 py-0.5 rounded-lg border border-slate-300">
               ${draftTotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </span>
@@ -353,10 +353,10 @@ export default function AddItemForm({ onAddItem, existingPlaces, categories, onA
         {/* Submit Button */}
         <button
           type="submit"
-          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3.5 px-4 rounded-2xl transition duration-150 shadow-sm flex items-center justify-center gap-2 cursor-pointer mt-2"
+          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-4 rounded-2xl transition duration-150 shadow-xs flex items-center justify-center gap-2 cursor-pointer mt-2 active:scale-95 text-sm"
           id="add-item-submit-btn"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-4.5 h-4.5 stroke-[2.5]" />
           <span>Agregar a la Lista</span>
         </button>
 
