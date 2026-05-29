@@ -260,13 +260,13 @@ Reglas importantes:
 1. DISTINGUE CONSULTAS vs ACCIONES DE REGISTRO:
    - CONSULTAS (Preguntas, cálculos, históricos, presupuestos, comparaciones por fecha): Si el usuario hace preguntas sobre qué ha comprado, cuánto ha gastado en ciertas fechas o periodos (ayer, hoy, esta semana, este mes), saldos de presupuestos o cálculos generales, NO invoques ninguna herramienta ni propongas tarjetas de confirmación. Responde amigablemente por chat en lenguaje de texto natural claro, prolijo, ordenado y con números formateados. Sé servicial y haz cálculos precisos utilizando los campos 'createdAt' de los datos para agrupar gastos por fechas.
    - ACCIONES DE MUTACIÓN (Añadir, modificar, borrar, reiniciar): Si el usuario solicita explícitamente agregar un artículo/servicio, cambiar un precio/cantidad, marcar algo como comprado o borrar un registro (ej: "Agrega pan", "Compré detergente", "Borra el café"), SÍ debes proponer la tarjeta de confirmación correspondiente invocando la herramienta (tool call) de manera inmediata.
-2. Analiza el lenguaje natural del usuario o las imágenes de recibos que suba.
+2. Analiza el lenguaje natural del usuario o las imágenes de recibos que suba. Si el usuario te da una lista rápida o menciona artículos (ej: "Agrega leche, huevos, jamón" o "lista rápida: pan y café"), invoca de inmediato 'add_multiple_items_proposed' (o 'add_item_proposed' si es un solo artículo) SIN pedirle precios, cantidades o lugares. Es de vital importancia que NUNCA le preguntes por chat el precio, cantidad o establecimiento si no los especificó; en su lugar, llama a la herramienta inmediatamente y deja que la tarjeta de confirmación se encargue de mostrarlos en pantalla.
 3. Identifica rigurosamente si el usuario se refiere a una compra ya realizada (directa/comprada) o a algo que tiene planeado comprar en el futuro (pendiente/planificada) basándote en los verbos que use:
    - Ej: "Compré", "Gasté", "Pagué", "Fui a comprar" -> Directa (bought = true).
    - Ej: "Añade a la lista", "Quiero comprar", "Planeo comprar", "Tengo que comprar" -> Pendiente/planificada (bought = false).
    - Si no se puede determinar, pon comprado como false (pendiente) o true según el contexto, pero asegúrate de que el parámetro 'bought' se envíe.
 4. Si el usuario sube un recibo con múltiples artículos, utiliza 'add_multiple_items_proposed' para proponerlos todos juntos en una sola tarjeta de confirmación de forma inmediata.
-5. Si falta información crucial, establece el parámetro correspondiente como vacío o nulo para que el usuario lo seleccione manualmente en la tarjeta de confirmación.
+5. Si falta información en la solicitud del usuario (como precio, lugar, cantidad o categoría), NO le preguntes por el chat. Invoca la herramienta correspondiente de inmediato y deja que esos parámetros falten o se establezcan en valores por defecto; el usuario podrá completarlos o modificarlos cómodamente en la tarjeta interactiva de confirmación que aparecerá en su pantalla.
 6. Si ejecutas una acción directa que no requiere tarjeta de confirmación compleja (como actualizar un presupuesto o borrar/marcar comprado, o restaurar del historial), describe lo que has hecho de manera extremadamente breve e interactiva.
 7. Para modificar un artículo existente (ej: "cambia el precio del pan a $20" o "renombra cereal a cereal fitness"), llama a 'update_item_proposed'.
 8. Si el usuario pide agregar un nuevo lugar frecuente, categoría o servicio de forma independiente, llama a 'add_place', 'add_category' o 'add_service_option' respectively.
@@ -291,18 +291,18 @@ Reglas importantes:
                 paymentMethod: { type: 'STRING', description: 'Método de pago utilizado. Opciones: efectivo, tarjeta, transferencia. Si no se puede inferir del recibo, dejar en blanco.' },
                 bought: { type: 'BOOLEAN', description: 'Si la compra ya se efectuó (true) o si es un plan futuro/pendiente (false)' }
               },
-              required: ['name', 'place', 'price', 'quantity', 'category', 'bought']
+              required: ['name', 'bought']
             }
           },
           {
             name: 'add_multiple_items_proposed',
-            description: 'Propone añadir múltiples artículos a la vez (ideal para escaneo de tickets completos de supermercado).',
+            description: 'Propone añadir múltiples artículos a la vez (ideal para escaneo de tickets completos de supermercado o listas rápidas).',
             parameters: {
               type: 'OBJECT',
               properties: {
                 items: {
                   type: 'ARRAY',
-                  description: 'Lista de artículos extraídos del ticket',
+                  description: 'Lista de artículos extraídos',
                   items: {
                     type: 'OBJECT',
                     properties: {
@@ -314,7 +314,7 @@ Reglas importantes:
                       paymentMethod: { type: 'STRING', description: 'Método de pago (efectivo, tarjeta, transferencia). Dejar en blanco si no se conoce.' },
                       bought: { type: 'BOOLEAN', description: 'Si la compra ya se hizo (true) o es planificada (false)' }
                     },
-                    required: ['name', 'place', 'price', 'quantity', 'category', 'bought']
+                    required: ['name', 'bought']
                   }
                 }
               },
