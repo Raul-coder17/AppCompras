@@ -1,67 +1,162 @@
-# Documentación: Cuentas Compras — Gestor de Presupuestos
+# Documentación Técnica Completa: Cuentas Compras — Gestor de Presupuestos & Asistente Inteligente IA
 
-## 1. ¿Cómo funciona la aplicación?
-
-**Cuentas Compras** es una aplicación Web Progresiva (PWA) diseñada para planificar compras, hacer listas y llevar un control estricto del presupuesto antes y durante la ida al supermercado o tienda. 
-
-Está diseñada para ser completamente utilizable sin conexión gracias a que guarda los datos localmente en el dispositivo del usuario (`localStorage`).
-
-La aplicación se compone de los siguientes módulos principales:
-- **Gestión de Presupuesto (`BudgetCard`):** Permite fijar un presupuesto máximo. En tiempo real va sumando lo que ya se gastó (artículos marcados como comprados) y lo que está planificado, mostrando visualmente cuánto dinero queda libre.
-- **Formulario de Adición (`AddItemForm`):** Un formulario inteligente para añadir productos. Sugiere automáticamente nombres de tiendas basándose en los lugares introducidos anteriormente.
-- **Lista de Compras (`PurchaseList`):** Permite ver todos los artículos, marcarlos como "comprados" con un solo toque, editarlos o eliminarlos.
-- **Resumen por Tiendas (`StoreSummary`):** Agrupa matemáticamente cuánto se va a gastar por cada tienda. Permite además filtrar la lista global para ver solo lo que corresponde comprar en un lugar específico.
-- **Exportación:** Un botón superior permite descargar toda la lista actual en formato Microsoft Excel/CSV para respaldo.
+Esta documentación describe la arquitectura, tecnologías, lógica interna, estructura de datos y despliegue de **Cuentas Compras**, una Aplicación Web Progresiva (PWA) de alto rendimiento diseñada para la planificación de compras, control estricto de presupuestos financieros y automatización inteligente mediante inteligencia artificial multimodal.
 
 ---
 
-## 2. Cambios y Características Tecnológicas
+## 1. Módulos y Arquitectura de la Aplicación
 
-La aplicación ha sido modernizada con los siguientes cambios:
-- **Tecnologías Core:** Migrado a React 19 y Vite 6 con TypeScript para asegurar rapidez y bajo consumo de recursos.
-- **Diseño Móvil y Responsivo:** Uso extensivo de Tailwind CSS v4 para adaptar las tarjetas perfectamente a tamaños largos de celular y acomodarlo como Dashboard en Desktop.
-- **Persistencia de Datos (Offline):** Todo se guarda inmediatamente en el almacenamiento local del dispositivo. No requiere base de datos ni internet para funcionar una vez abierta (ni para guardar compras ni actualizar precios).
-- **Iconografía:** Integración fluida con `lucide-react`.
-- **Soporte PWA (Progressive Web App):** Se ha integrado `vite-plugin-pwa` junto con todos los íconos necesarios y un manifiesto web para permitir la instalación nativa de la app en teléfonos saltándose las tiendas de aplicaciones (App Store / Google Play).
+La aplicación se compone de cinco módulos interactivos de alta fidelidad, sincronizados reactivamente en el estado de React (`App.tsx`) y con persistencia inmediata en el `localStorage` del dispositivo para funcionamiento offline.
+
+```mermaid
+graph TD
+    subgraph Frontend App (React 19 & Vite 6)
+        App[App.tsx - Central State Orchestrator] --> BC[BudgetCard.tsx - Presupuesto & Metas]
+        App --> PL[PurchaseList.tsx - Tabla Interactiva & Filtros]
+        App --> AIF[AddItemForm.tsx - Añadir Manual & Categorías]
+        App --> SP[ServicePayments.tsx - Uber/Didi & Servicios Recurrentes]
+        App --> SS[StoreSummary.tsx - Resumen Financiero por Tienda]
+        App --> EC[ExpenseCalendar.tsx - Calendario Mensual de Gastos]
+        App --> AI[AIAssistant.tsx - Chatbot & OCR Multimodal Gemini]
+    end
+    
+    subgraph Local Storage
+        App <--> LS[(Browser LocalStorage - Datos Persistentes)]
+    end
+
+    subgraph External APIs
+        AI <--> Gemini[Google Gemini API - Modelos Flash/Pro en Cascada]
+    end
+```
+
+### Detalle de Módulos Principales:
+* **Gestión de Presupuestos (`BudgetCard.tsx`):** Divide el capital total disponible en dos canastas: **Efectivo** y **Tarjeta/Transferencia**. Muestra en tiempo real estadísticas de capital total comprometido, restante, gastado directo y planificado. Cuenta con atajos táctiles rápidos para agregar fondos.
+* **Formulario de Adición Inteligente (`AddItemForm.tsx`):** Permite registrar artículos indicando nombre, precio, cantidad, categoría, establecimiento y método de pago. Ofrece sugerencias de autocompletado en tiempo real basadas en compras pasadas.
+* **Filtro y Listado General (`PurchaseList.tsx`):** Controla el estado comprado/pendiente del artículo con un solo toque. Incluye barra de búsqueda por texto, filtrado rápido por chips de categorías de alto contraste, ordenamiento inteligente por fecha/precio, y un historial/papelera de reciclaje para restaurar artículos borrados.
+* **Resumen Financiero por Tienda (`StoreSummary.tsx`):** Agrupa matemáticamente los artículos para calcular el monto exacto comprometido en cada establecimiento y permite hacer clic en el nombre de una tienda para filtrar el listado global instantáneamente.
+* **Calendario Mensual de Gastos (`ExpenseCalendar.tsx`):** Apartado temporal interactivo. Consolida compras (`bought: true`) y pagos de servicios por día en una cuadrícula mensual limpia, mostrando badges de gasto diario y un cajón esmerilado que detalla los artículos comprados al hacer clic en un día.
+* **Asistente Inteligente IA (`AIAssistant.tsx`):** Panel deslizable estilo lateral (*drawer*) que permite controlar el 100% de la aplicación mediante lenguaje natural (texto) o escaneo OCR de fotografías de tickets físicos.
 
 ---
 
-## 3. Cómo correr la App y probarla localmente
+## 2. Pila Tecnológica (Tech Stack)
 
-Para desarrollar o correr la app en tu propia computadora:
+La aplicación utiliza tecnologías modernas para garantizar tiempos de carga instantáneos (menos de 300ms) y compatibilidad PWA multiplataforma:
 
-1. **Requisitos Previos:** Debes tener Node.js instalado en tu equipo.
-2. Abre la terminal en VSC o tu línea de comandos y navega a la carpeta del proyecto.
-3. Instala las dependencias:
+1. **Core:**
+   - **React 19 (React-DOM):** Renderizado de alto rendimiento basado en reconciliación reactiva.
+   - **TypeScript 5:** Tipado estricto para evitar errores sintácticos o en tiempo de ejecución.
+   - **Vite 6:** Motor de construcción ultrarrápido con soporte nativo de HMR (Hot Module Replacement).
+2. **Estilos y Experiencia Visual (Aesthetics):**
+   - **Tailwind CSS v4:** Motor de estilos JIT optimizado que aprovecha variables CSS nativas.
+   - **Glassmorphism y Backdrop Filters:** Uso extensivo del efecto vidrio translúcido (`.glass-card` con `backdrop-blur-md` y reflejos suavizados).
+   - **Tipografía Google Fonts:** Integración de **Outfit** y **Plus Jakarta Sans** para máxima legibilidad tipográfica.
+3. **Persistencia e Instalación:**
+   - **Service Workers & PWA:** Configurado vía `vite-plugin-pwa` para almacenar en caché los activos estáticos y permitir la ejecución 100% offline e instalación en móviles como app nativa.
+   - **Almacenamiento Local:** Sincronización del estado con `localStorage`.
+
+---
+
+## 3. Lógica del Asistente Gemini IA (`AIAssistant.tsx`)
+
+El asistente implementa una lógica avanzada de orquestación de prompts e invocación de herramientas (Tool Calling) a través de la API REST de Google Gemini:
+
+```
+[Usuario escribe o sube Foto] 
+         │
+         ▼
+[AIAssistant.tsx - API Call] ──(Pasa State de compras, presupuestos, tiendas y categorías)
+         │
+         ▼
+[Google Gemini Model] ──(Aplica Reglas de Negocio)
+         │
+         ├──► [Caso Conversacional/Directo] ──► Retorna texto breve al chat
+         │
+         └──► [Caso Acción/Registro] ──► Retorna Tool Call (Lanza Tarjeta de Confirmación)
+```
+
+### Características Clave del Motor de IA:
+1. **Lógica de Cascada y Failover Automático:**
+   Para prever la congestión del servidor o el agotamiento de límites de la cuota gratuita, el asistente implementa una alternancia automática en cascada de modelos en tiempo real. Si el modelo actual arroja un error `429` o similar, rota automáticamente:
+   $$\text{gemini-2.5-flash} \longrightarrow \text{gemini-2.0-flash} \longrightarrow \text{gemini-1.5-flash} \longrightarrow \text{gemini-2.5-pro} \longrightarrow \text{gemini-1.5-pro}$$
+2. **Análisis Multimodal de Recibos (OCR):**
+   Cuando el usuario toma una foto o sube un ticket de compra, el asistente convierte la imagen a Base64 y la transmite a Gemini. El modelo analiza la imagen, extrae el nombre de la tienda, lista de productos con precios unitarios, cantidades, deduce la categoría idónea y selecciona el método de pago más factible indicado en el papel.
+3. **Diferenciación de Verbos (Compra Directa vs Planificación):**
+   El prompt del sistema enseña a la IA a discriminar la naturaleza del registro basándose en los tiempos verbales:
+   - *Verbos pasados/efectuados:* "Compré", "Gasté", "Pagué", "Ticket escaneado" $\longrightarrow$ `bought = true` (Afecta directamente el gasto en efectivo/tarjeta del mes).
+   - *Verbos futuros/intenciones:* "Añade a la lista", "Quiero comprar", "Planeo comprar" $\longrightarrow$ `bought = false` (Se registra como pendiente y reserva fondos planificados).
+4. **Tarjetas de Confirmación Interactivas ("Human-in-the-Loop"):**
+   Para evitar registros erróneos debidos a imágenes borrosas o ruido visual, Gemini genera un **Tool Call** (`add_item_proposed` o `add_multiple_items_proposed`). Esto despliega una tarjeta de confirmación editable en la interfaz del chat. El usuario puede refinar nombres, precios y métodos de pago antes de presionar "Confirmar e Insertar".
+5. **Propuesta Instantánea al Primer Mensaje:**
+   El motor de IA está optimizado bajo la directriz estricta de no entablar conversaciones extensas innecesarias. Al detectar una solicitud de registro, Gemini lanza la tarjeta interactiva de inmediato en su primer mensaje, asumiendo valores lógicos editables para priorizar la velocidad de acción.
+
+---
+
+## 4. Lógica de Negocio del Calendario (`ExpenseCalendar.tsx`)
+
+El calendario organiza los egresos mensuales utilizando una cuadrícula dinámica que calcula los sumatorios de gastos diarios:
+
+1. **Agrupamiento y Mezclado:**
+   Filtra los artículos que tienen `bought = true` y los combina con los registros de pagos de servicios recurrentes (`servicePayments`). Ambos arrays tienen la marca temporal `createdAt` en formato ISO string.
+2. **Mapeo de Fechas:**
+   Agrupa los elementos mediante una clave diaria `YYYY-MM-DD` que corresponde estrictamente al mes y año seleccionado por el usuario en los controles de navegación.
+3. **Generación de la Grilla (42 celdas):**
+   - Determina el primer día del mes para calcular el retraso de celdas iniciales correspondientes al mes anterior.
+   - Genera los días activos del mes en curso asociándoles la suma consolidada de dinero gastado para mostrar el badge monetario (ej: `$45`).
+   - Rellena las celdas finales del mes siguiente para mantener una cuadrícula uniforme de 6 filas y evitar saltos de layout bruscos.
+4. **Desglose en Drawer:**
+   Al pulsar una celda activa que tiene gastos, el componente filtra el array combinado usando la clave `YYYY-MM-DD` seleccionada y expone las transacciones detalladas con tipografía de alta legibilidad para personas de la tercera edad.
+
+---
+
+## 5. Modelado y Estructura de Datos (`src/types.ts`)
+
+La aplicación se rige por interfaces estrictas de TypeScript:
+
+### 🛍️ ShoppingItem (Artículos de Compra)
+```typescript
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  place: string;            // Oxxo, Mercadona, Amazon, etc.
+  price: number;            // Precio unitario
+  quantity: number;         // Cantidad
+  category: string;         // comida, hogar, tecnologia, ropa, salud, otros
+  bought: boolean;          // true = Comprado, false = Planificado/Pendiente
+  paymentMethod: 'efectivo' | 'tarjeta' | 'transferencia';
+  createdAt: string;        // ISO Date String
+}
+```
+
+### 🚌 ServicePayment (Servicios Recurrentes)
+```typescript
+export interface ServicePayment {
+  id: string;
+  service: string;          // Uber, Didi, Internet, Gas, etc.
+  amount: number;           // Monto pagado
+  paymentMethod: 'efectivo' | 'tarjeta' | 'transferencia';
+  createdAt: string;        // ISO Date String
+}
+```
+
+### 🗑️ ArchivedItem (Historial de Papelera)
+```typescript
+export interface ArchivedItem extends ShoppingItem {
+  deletedAt: string;        // Fecha de archivado
+}
+```
+
+---
+
+## 6. Despliegue y Pruebas en Red Local
+
+### Correr la App localmente:
+1. Instalar dependencias necesarias:
    ```bash
    npm install
    ```
-4. Corre el entorno de desarrollo abriendo tu equipo a tu red local (esencial para probar en el teléfono por Wifi):
+2. Iniciar el servidor local de desarrollo abierto a la red local (esencial para probar en tu teléfono celular vía Wi-Fi):
    ```bash
    npm run dev -- --host
    ```
-5. La terminal te dará una dirección de red (ej. `http://192.168.x.x:3000`). Entra ahí en tu computadora o vía el celular conectado al mismo Wi-Fi.
-
-### Reiniciar o cerrar el servidor local
-
-- **Cerrar (detener) el servidor:** en la terminal donde está corriendo, presiona `Ctrl + C`.
-- **Reiniciar el servidor:** vuelve a ejecutar el comando `npm run dev -- --host`.
-
----
-
-## 4. Cómo instalar la Aplicación en Teléfonos (Android / iPhone)
-
-Para poderla instalar de forma permanente como una App nativa offline, primero debe ser "publicada" en un servidor gratuito para obtener el candado de seguridad `https://` (ej. vía Vercel). Una vez subida y con tu enlace en mano, se instala así:
-
-### 🍏 En iPhone / iOS
-1. Abre el navegador **Safari** y visita la URL segura de tu aplicación (ej. `https://tu-app.vercel.app`).
-2. Toca el botón físico de **Compartir** (el icono de un cuadro con una flecha hacia arriba, en la parte inferior de Safari).
-3. Desliza las opciones hacia abajo y selecciona **"Añadir a la pantalla de inicio"** (Add to Home Screen).
-4. Dale a confirmar ("Añadir"). La aplicación aparecerá junto a tus otras apps en el menú de escritorio, abriendo a pantalla completa como cualquier app nativa.
-
-### 🤖 En Android
-1. Abre el navegador **Google Chrome** y visita la URL de tu aplicación.
-2. En la parte inferior suele aparecer automáticamente un aviso flotante que dice: **"Añadir Cuentas Compras a la pantalla de inicio"**. Pulsa en él.
-3. Si el aviso no aparece, da un toque sobre los tres puntos de opciones de Chrome en la esquina superior derecha.
-4. Selecciona la opción **"Instalar aplicación"** o "Añadir a pantalla de inicio".
-5. Confirma y espera unos segundos. La App quedará permanentemente instalada para abrirla cuantas veces quieras y organizar tus finanzas sin gastar datos ni WiFi.
+3. Copiar la dirección de red local generada (ej: `http://192.168.1.15:3000`) e ingresarla en el navegador Safari o Google Chrome de tu teléfono inteligente para instalarla como una PWA nativa en tu pantalla de inicio mediante la opción **"Añadir a la pantalla de inicio"**.
