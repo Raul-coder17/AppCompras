@@ -248,3 +248,43 @@ export interface Apartado {
    * **Local:** `http://localhost:3000/` (Para probar en la computadora).
    * **Network (Red Local):** `http://192.168.X.X:3000/` (Copia esta dirección física en el navegador Google Chrome o Safari de tu teléfono celular).
 4. **Instalación Móvil PWA:** En tu celular, abre el menú de opciones del navegador y presiona **"Añadir a la pantalla de inicio"** (Android) o presiona el botón de compartir y selecciona **"Añadir a pantalla de inicio"** (iOS/iPhone). La aplicación se instalará como una aplicación nativa premium con icono propio en tu escritorio de SpendWise Pro.
+
+---
+
+### 🔍 Monitoreo y Cierre de Servidores en Ejecución (Puertos Ocupados)
+
+En ocasiones, al intentar iniciar el servidor con `npm run dev`, es posible que aparezca un mensaje de error indicando que los puertos `3000` o `3001` ya están ocupados por otra instancia en segundo plano. A continuación, se detallan las instrucciones paso a paso para identificar y cerrar estos procesos:
+
+#### En Windows (PowerShell - Recomendado):
+1. **Identificar el proceso:** Ejecuta el siguiente comando para encontrar el identificador de proceso (PID) que está usando esos puertos:
+   ```powershell
+   Get-NetTCPConnection -LocalPort 3000, 3001 -ErrorAction SilentlyContinue | Select-Object LocalPort, OwningProcess
+   ```
+2. **Cerrar el proceso:** Una vez que obtengas el número del proceso (bajo la columna `OwningProcess`), ciérralo forzosamente con:
+   ```powershell
+   Stop-Process -Id <OwningProcess> -Force
+   ```
+   *(Ejemplo: `Stop-Process -Id 15068 -Force`)*
+
+#### En Windows (Símbolo del Sistema - CMD):
+1. **Identificar el proceso:**
+   ```cmd
+   netstat -ano | findstr :3000
+   netstat -ano | findstr :3001
+   ```
+   El último número de la línea de resultado representa el identificador (PID) del proceso.
+2. **Cerrar el proceso:**
+   ```cmd
+   taskkill /PID <PID> /F
+   ```
+
+#### En macOS o Linux (Terminal):
+1. **Identificar el proceso:**
+   ```bash
+   lsof -i :3000
+   lsof -i :3001
+   ```
+2. **Cerrar el proceso:**
+   ```bash
+   kill -9 <PID>
+   ```
