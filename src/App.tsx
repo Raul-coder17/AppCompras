@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShoppingBag, 
   RotateCcw, 
@@ -13,9 +13,10 @@ import {
   Heart,
   ExternalLink,
   Calendar,
-  BarChart3
+  BarChart3,
+  ArrowRight
 } from 'lucide-react';
-import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS, ServicePayment, PREDEFINED_SERVICES } from './types';
+import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS, ServicePayment, PREDEFINED_SERVICES, Income, MonthlySummary, MonthlyHistoryRecord, Apartado } from './types';
 import BudgetCard from './components/BudgetCard';
 import AddItemForm from './components/AddItemForm';
 import StoreSummary from './components/StoreSummary';
@@ -24,6 +25,9 @@ import ServicePayments from './components/ServicePayments';
 import ExpenseCalendar from './components/ExpenseCalendar';
 import ExpenseCharts from './components/ExpenseCharts';
 import AIAssistant from './components/AIAssistant';
+import IncomesManager from './components/IncomesManager';
+import MonthCloseWizard from './components/MonthCloseWizard';
+import MonthlyHistory from './components/MonthlyHistory';
 
 // Initial demo data to showcase calculating capabilities immediately
 const DEFAULT_BUDGET = 350.00;
@@ -98,10 +102,18 @@ export default function App() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [categories, setCategories] = useState(PREDEFINED_CATEGORIES);
-  const [activeTab, setActiveTab] = useState<'list' | 'calendar' | 'charts'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'calendar' | 'charts' | 'history'>('list');
   const [userName, setUserName] = useState<string>(() => localStorage.getItem('cobuy_username') || 'Usuario');
   const [isNameModalOpen, setIsNameModalOpen] = useState(false);
   const [tempName, setTempName] = useState(userName);
+
+  // New states for capital management
+  const [incomes, setIncomes] = useState<Income[]>([]);
+  const [monthlyHistory, setMonthlyHistory] = useState<MonthlyHistoryRecord[]>([]);
+  const [currentMonth, setCurrentMonth] = useState<string>('');
+  const [isCloseWizardOpen, setIsCloseWizardOpen] = useState(false);
+  const [showMonthChangeBanner, setShowMonthChangeBanner] = useState(false);
+  const [apartados, setApartados] = useState<Apartado[]>([]);
 
   const handleUpdateUserName = (newName: string) => {
     const trimmed = newName.trim();
@@ -185,6 +197,39 @@ export default function App() {
         setCashBudget(0);
         setCardBudget(DEFAULT_BUDGET);
       }
+
+      // Load new capital management states
+      const storedIncomes = localStorage.getItem('cobuy_incomes');
+      const storedHistory = localStorage.getItem('cobuy_history_months');
+      const storedCurrentMonth = localStorage.getItem('cobuy_current_month');
+      const storedApartados = localStorage.getItem('cobuy_apartados');
+
+      if (storedIncomes) {
+        setIncomes(JSON.parse(storedIncomes));
+      } else {
+        setIncomes([]);
+      }
+
+      if (storedHistory) {
+        setMonthlyHistory(JSON.parse(storedHistory));
+      } else {
+        setMonthlyHistory([]);
+      }
+
+      if (storedApartados) {
+        setApartados(JSON.parse(storedApartados));
+      } else {
+        setApartados([]);
+      }
+
+      if (storedCurrentMonth) {
+        setCurrentMonth(storedCurrentMonth);
+      } else {
+        const now = new Date();
+        const initialMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+        setCurrentMonth(initialMonth);
+        localStorage.setItem('cobuy_current_month', initialMonth);
+      }
     } catch (e) {
       console.warn("No se pudo cargar datos desde localStorage", e);
       setItems(DEFAULT_ITEMS);
@@ -195,6 +240,9 @@ export default function App() {
       setPlaces([]);
       setServicePayments([]);
       setServiceOptions(PREDEFINED_SERVICES);
+      setIncomes([]);
+      setMonthlyHistory([]);
+      setApartados([]);
     } finally {
       setIsInitialized(true);
     }
@@ -264,6 +312,257 @@ export default function App() {
       console.error("Error al guardar servicios en localStorage", e);
     }
   }, [serviceOptions, isInitialized]);
+
+  // Autosaves for capital management
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_incomes', JSON.stringify(incomes));
+    } catch (e) {
+      console.error("Error al guardar ingresos en localStorage", e);
+    }
+  }, [incomes, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_history_months', JSON.stringify(monthlyHistory));
+    } catch (e) {
+      console.error("Error al guardar historial mensual en localStorage", e);
+    }
+  }, [monthlyHistory, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_current_month', currentMonth);
+    } catch (e) {
+      console.error("Error al guardar mes activo en localStorage", e);
+    }
+  }, [currentMonth, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('cobuy_apartados', JSON.stringify(apartados));
+    } catch (e) {
+      console.error("Error al guardar apartados en localStorage", e);
+    }
+  }, [apartados, isInitialized]);
+
+
+  // Month change detector
+  useEffect(() => {
+    if (!isInitialized) return;
+    const now = new Date();
+    const activeYearMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const storedMonth = localStorage.getItem('cobuy_current_month');
+    if (storedMonth && storedMonth !== activeYearMonth) {
+      setShowMonthChangeBanner(true);
+    }
+  }, [isInitialized]);
+
+  const currentMonthName = useMemo(() => {
+    if (!currentMonth) return '';
+    const [year, month] = currentMonth.split('-');
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+    return `${monthNames[parseInt(month) - 1]} ${year}`;
+  }, [currentMonth]);
+
+  // Income handlers
+  const handleAddIncome = (incomeData: Omit<Income, 'id' | 'createdAt'>) => {
+    const newIncome: Income = {
+      ...incomeData,
+      id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      createdAt: new Date().toISOString()
+    };
+    setIncomes((prev) => [newIncome, ...prev]);
+    if (incomeData.paymentMethod === 'efectivo') {
+      setCashBudget((prev) => prev + incomeData.amount);
+    } else {
+      setCardBudget((prev) => prev + incomeData.amount);
+    }
+  };
+
+  const handleDeleteIncome = (id: string) => {
+    setIncomes((prev) => {
+      const target = prev.find(i => i.id === id);
+      if (target) {
+        if (target.paymentMethod === 'efectivo') {
+          setCashBudget((prevCash) => Math.max(0, prevCash - target.amount));
+        } else {
+          setCardBudget((prevCard) => Math.max(0, prevCard - target.amount));
+        }
+      }
+      return prev.filter(i => i.id !== id);
+    });
+  };
+
+  // Apartados handlers
+  const handleAddApartado = (name: string, amount: number, paymentMethod: 'efectivo' | 'tarjeta') => {
+    const trimmedName = name.trim();
+    if (!trimmedName || amount <= 0) return;
+
+    // Verify availability
+    if (paymentMethod === 'efectivo') {
+      if (amount > cashBudget) return;
+      setCashBudget((prev) => prev - amount);
+    } else {
+      if (amount > cardBudget) return;
+      setCardBudget((prev) => prev - amount);
+    }
+
+    const newApartado: Apartado = {
+      id: `apartado-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: trimmedName,
+      amount,
+      paymentMethod,
+      createdAt: new Date().toISOString()
+    };
+
+    setApartados((prev) => [...prev, newApartado]);
+  };
+
+  const handleDepositToApartado = (id: string, amount: number) => {
+    if (amount <= 0) return;
+    setApartados((prev) => {
+      return prev.map((ap) => {
+        if (ap.id === id) {
+          // Verify budget availability
+          if (ap.paymentMethod === 'efectivo') {
+            if (amount > cashBudget) return ap;
+            setCashBudget((prevCash) => prevCash - amount);
+          } else {
+            if (amount > cardBudget) return ap;
+            setCardBudget((prevCard) => prevCard - amount);
+          }
+          return { ...ap, amount: ap.amount + amount };
+        }
+        return ap;
+      });
+    });
+  };
+
+  const handleWithdrawFromApartado = (id: string, amount: number) => {
+    if (amount <= 0) return;
+    setApartados((prev) => {
+      return prev.map((ap) => {
+        if (ap.id === id) {
+          const actualWithdraw = Math.min(ap.amount, amount);
+          if (ap.paymentMethod === 'efectivo') {
+            setCashBudget((prevCash) => prevCash + actualWithdraw);
+          } else {
+            setCardBudget((prevCard) => prevCard + actualWithdraw);
+          }
+          return { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) };
+        }
+        return ap;
+      });
+    });
+  };
+
+  const handleDeleteApartado = (id: string) => {
+    setApartados((prev) => {
+      const target = prev.find((ap) => ap.id === id);
+      if (target) {
+        if (target.paymentMethod === 'efectivo') {
+          setCashBudget((prevCash) => prevCash + target.amount);
+        } else {
+          setCardBudget((prevCard) => prevCard + target.amount);
+        }
+      }
+      return prev.filter((ap) => ap.id !== id);
+    });
+  };
+
+  // Month closing wizard handler
+  const handleConfirmCloseMonth = (newCashBudget: number, newCardBudget: number, carryOverPendingItems: boolean) => {
+    const boughtItems = items.filter(i => i.bought);
+    const pendingItems = items.filter(i => !i.bought);
+
+    const spentCash = boughtItems
+      .filter(i => i.paymentMethod === 'efectivo')
+      .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+
+    const spentCard = boughtItems
+      .filter(i => i.paymentMethod === 'tarjeta' || i.paymentMethod === 'transferencia')
+      .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+
+    const spentServices = servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
+    
+    const totalIncomesCash = incomes
+      .filter(i => i.paymentMethod === 'efectivo')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+
+    const totalIncomesCard = incomes
+      .filter(i => i.paymentMethod === 'tarjeta')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+
+    const remainingCashVal = Math.max(0, cashBudget + totalIncomesCash - spentCash);
+    const remainingCardVal = Math.max(0, cardBudget + totalIncomesCard - spentCard - spentServices);
+
+    const [year, month] = currentMonth.split('-');
+
+    const summary: MonthlySummary = {
+      monthId: currentMonth,
+      monthName: currentMonthName,
+      initialCashBudget: Math.max(0, cashBudget - totalIncomesCash),
+      initialCardBudget: Math.max(0, cardBudget - totalIncomesCard),
+      totalIncomesCash,
+      totalIncomesCard,
+      totalSpentCash: spentCash,
+      totalSpentCard: spentCard,
+      totalSpentServices: spentServices,
+      remainingCash: remainingCashVal,
+      remainingCard: remainingCardVal,
+      createdAt: new Date().toISOString()
+    };
+
+    const record: MonthlyHistoryRecord = {
+      monthId: currentMonth,
+      summary,
+      items: [...items],
+      servicePayments: [...servicePayments],
+      incomes: [...incomes]
+    };
+
+    // Save to history
+    setMonthlyHistory(prev => [record, ...prev]);
+
+    // Setup next month active settings
+    const nextMonthDate = new Date(parseInt(year), parseInt(month), 1);
+    const nextMonthStr = nextMonthDate.getFullYear() + '-' + String(nextMonthDate.getMonth() + 1).padStart(2, '0');
+    
+    setCurrentMonth(nextMonthStr);
+    setCashBudget(newCashBudget);
+    setCardBudget(newCardBudget);
+    setIncomes([]);
+
+    // Clear items: carry over pending if requested
+    if (carryOverPendingItems) {
+      const carriedItems = pendingItems.map(item => ({
+        ...item,
+        createdAt: new Date().toISOString()
+      }));
+      setItems(carriedItems);
+    } else {
+      setItems([]);
+    }
+
+    // Preserve recurring service definitions (with their past createdAt)
+    const uniqueRecurrents: Record<string, ServicePayment> = {};
+    servicePayments.filter(sp => sp.isRecurring).forEach(sp => {
+      if (!uniqueRecurrents[sp.service] || new Date(sp.createdAt) > new Date(uniqueRecurrents[sp.service].createdAt)) {
+        uniqueRecurrents[sp.service] = sp;
+      }
+    });
+    setServicePayments(Object.values(uniqueRecurrents));
+
+    setIsCloseWizardOpen(false);
+  };
 
   // Core Mutation Actions
   const handleAddItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
@@ -520,6 +819,36 @@ export default function App() {
 
       {/* Main Body Grid Dashboard */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+
+        {/* Month Change Banner Alert */}
+        {showMonthChangeBanner && (
+          <div className="mb-6 p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-700/50 text-white rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md animate-in slide-in-from-top duration-300">
+            <div className="flex items-center gap-3">
+              <span className="text-xl shrink-0">📅</span>
+              <div>
+                <h4 className="font-extrabold text-sm text-emerald-400">¡Ha cambiado el mes calendario!</h4>
+                <p className="text-[10px] text-slate-300 font-semibold mt-0.5">Te sugerimos archivar {currentMonthName} y configurar tus fondos iniciales para el nuevo mes.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={() => setShowMonthChangeBanner(false)}
+                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Ocultar
+              </button>
+              <button
+                onClick={() => {
+                  setShowMonthChangeBanner(false);
+                  setIsCloseWizardOpen(true);
+                }}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 shadow-sm"
+              >
+                Cerrar Mes <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Navigation Tabs - Modern Glass Switch */}
         <div className="flex justify-center mb-8" id="view-mode-tabs">
@@ -566,6 +895,20 @@ export default function App() {
                 <span className="hidden sm:inline">Gráficos Analíticos</span>
               </span>
             </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
+                activeTab === 'history' 
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+              }`}
+            >
+              <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
+              <span>
+                <span className="inline sm:hidden">Historial</span>
+                <span className="hidden sm:inline">Historial Mensual</span>
+              </span>
+            </button>
           </div>
         </div>
 
@@ -578,7 +921,15 @@ export default function App() {
               {/* Top metrics with inline customizable budget cap */}
               <BudgetCard 
                 summary={budgetSummary} 
-                onUpdateBudget={handleUpdateBudget} 
+                onUpdateBudget={handleUpdateBudget}
+                onOpenCloseWizard={() => setIsCloseWizardOpen(true)}
+                totalIncomesCash={incomes.filter(i => i.paymentMethod === 'efectivo').reduce((acc, curr) => acc + curr.amount, 0)}
+                totalIncomesCard={incomes.filter(i => i.paymentMethod === 'tarjeta').reduce((acc, curr) => acc + curr.amount, 0)}
+                apartados={apartados}
+                onAddApartado={handleAddApartado}
+                onDepositToApartado={handleDepositToApartado}
+                onWithdrawFromApartado={handleWithdrawFromApartado}
+                onDeleteApartado={handleDeleteApartado}
               />
 
               {/* List with rich actions: edit inline, check toggles, filters, sorts */}
@@ -610,6 +961,12 @@ export default function App() {
                 onAddCategory={handleAddCategory}
               />
 
+              <IncomesManager
+                incomes={incomes}
+                onAddIncome={handleAddIncome}
+                onDeleteIncome={handleDeleteIncome}
+              />
+
               <ServicePayments
                 payments={servicePayments}
                 services={serviceOptions}
@@ -635,7 +992,7 @@ export default function App() {
               servicePayments={servicePayments} 
             />
           </div>
-        ) : (
+        ) : activeTab === 'charts' ? (
           <div className="animate-in fade-in duration-200">
             <ExpenseCharts
               items={items}
@@ -644,6 +1001,10 @@ export default function App() {
               cashBudget={cashBudget}
               cardBudget={cardBudget}
             />
+          </div>
+        ) : (
+          <div className="animate-in fade-in duration-200">
+            <MonthlyHistory history={monthlyHistory} />
           </div>
         )}
       </main>
@@ -746,6 +1107,18 @@ export default function App() {
         </div>
       )}
 
+      <MonthCloseWizard
+        isOpen={isCloseWizardOpen}
+        onClose={() => setIsCloseWizardOpen(false)}
+        currentMonthName={currentMonthName}
+        cashBudget={cashBudget}
+        cardBudget={cardBudget}
+        items={items}
+        servicePayments={servicePayments}
+        incomes={incomes}
+        onConfirmClose={handleConfirmCloseMonth}
+      />
+
       <AIAssistant
         userName={userName}
         items={items}
@@ -769,6 +1142,11 @@ export default function App() {
         onRestoreItem={handleRestoreItem}
         onPurgeArchivedItem={handlePurgeArchivedItem}
         onResetDatabase={handleConfirmReset}
+        incomes={incomes}
+        monthlyHistory={monthlyHistory}
+        currentMonth={currentMonth}
+        onAddIncome={handleAddIncome}
+        onDeleteIncome={handleDeleteIncome}
       />
 
     </div>

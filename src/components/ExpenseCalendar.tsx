@@ -184,7 +184,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
     let cash = 0;
     let card = 0;
 
-    Object.values(monthlyExpensesGrouped).forEach((dayList) => {
+    (Object.values(monthlyExpensesGrouped) as DailyExpenseDetail[][]).forEach((dayList) => {
       dayList.forEach((exp) => {
         const cost = exp.priceOrAmount * exp.quantity;
         total += cost;

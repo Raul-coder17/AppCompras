@@ -26,7 +26,7 @@ import {
   Mic,
   MicOff
 } from 'lucide-react';
-import { ShoppingItem, ArchivedItem, ServicePayment, Category, PaymentMethod, PREDEFINED_CATEGORIES } from '../types';
+import { ShoppingItem, ArchivedItem, ServicePayment, Category, PaymentMethod, PREDEFINED_CATEGORIES, Income, MonthlyHistoryRecord } from '../types';
 import AIAssistantSettings, { GEMINI_MODELS } from './AIAssistantSettings';
 
 // Types for Chat Messages
@@ -128,7 +128,12 @@ export default function AIAssistant({
   onAddServiceOption,
   onRestoreItem,
   onPurgeArchivedItem,
-  onResetDatabase
+  onResetDatabase,
+  incomes = [],
+  monthlyHistory = [],
+  currentMonth = '',
+  onAddIncome,
+  onDeleteIncome
 }: AIAssistantProps) {
   // Assistant drawer state
   const [isOpen, setIsOpen] = useState(false);
@@ -286,17 +291,28 @@ export default function AIAssistant({
     const modelToUse = currentModel;
     attemptedModels.push(modelToUse);
 
+    // Build active month name
+    const [currY, currM] = currentMonth.split('-');
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+    const currMonthName = currM ? `${monthNames[parseInt(currM) - 1]} ${currY}` : '';
+
     // Build current state payload for the system instructions
     const systemInstruction = `
 Eres un asistente financiero experto dentro de la aplicación 'Cuentas Compras'.
 El usuario con el que estás hablando se llama: ${userName}. Dirígete a él o ella por su nombre cuando lo consideres oportuno de manera extremadamente afectuosa, respetuosa y cercana.
-Tu objetivo es ayudar a ${userName} a gestionar su lista de compras, servicios y presupuestos mediante lenguaje natural, consultas analíticas, cálculos matemáticos y análisis de fotografías de recibos.
+Tu objetivo es ayudar a ${userName} a gestionar su lista de compras, servicios, presupuestos e ingresos mediante lenguaje natural, consultas analíticas, cálculos matemáticos y análisis de fotografías de recibos.
 Hoy es ${new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 
 Estado actual de la aplicación:
+- Mes activo actual: ${currentMonth} (${currMonthName})
 - Artículos planificados/comprados (ShoppingItem): ${JSON.stringify(items.map(i => ({ id: i.id, name: i.name, place: i.place, price: i.price, quantity: i.quantity, category: i.category, bought: i.bought, paymentMethod: i.paymentMethod, createdAt: i.createdAt })))}
 - Historial de artículos eliminados/archivados (ArchivedItem): ${JSON.stringify(archivedItems.map(a => ({ id: a.id, name: a.name, place: a.place, price: a.price, quantity: a.quantity, category: a.category, paymentMethod: a.paymentMethod, createdAt: a.createdAt, deletedAt: a.deletedAt })))}
 - Pagos de servicios (ServicePayment): ${JSON.stringify(servicePayments)}
+- Ingresos de este mes (Income): ${JSON.stringify(incomes)}
+- Historial financiero de meses cerrados (MonthlyHistoryRecord): ${JSON.stringify(monthlyHistory.map(m => ({ monthId: m.monthId, summary: m.summary })))}
 - Presupuesto en efectivo disponible: $${cashBudget}
 - Presupuesto en tarjeta/transferencia disponible: $${cardBudget}
 - Categorías de compras disponibles: ${JSON.stringify(categories.map(c => ({ id: c.id, name: c.name })))}
@@ -322,6 +338,7 @@ Reglas importantes:
    - Si el usuario menciona varios artículos CON un precio total general (ej: "Compré leche, pan y huevos por $150", "Gasté $200 en frutas, verduras y carne"), usa 'add_multiple_items_proposed' con el parámetro 'totalPrice' igual al monto total y deja el precio individual de cada artículo en 0. La tarjeta de confirmación se encargará de distribuir el total.
    - Si el usuario menciona varios artículos CON precios individuales (ej: "Compré leche $30, pan $20 y huevos $50"), usa 'add_multiple_items_proposed' con el precio de cada artículo en su campo 'price' y NO envíes 'totalPrice'.
    - Si el usuario menciona artículos sin ningún precio, no envíes 'totalPrice' ni precios individuales (dejar en 0).
+11. REGISTRO DE INGRESOS: Si el usuario menciona haber recibido dinero (por ejemplo: 'Me pagaron mi nómina de $10,000 en tarjeta', 'Registra un ingreso de $500 en efectivo por un regalo' o 'Me llegó una lana extra de $1200'), debes proponer la tarjeta de confirmación correspondiente llamando a 'add_income_proposed' inmediatamente. Si no especifica el método de pago (efectivo o tarjeta), invoca la herramienta sin enviarlo (o déjalo vacío) para que el usuario elija su destino interactivamente.
 `;
 
     // Tools definition
@@ -516,6 +533,19 @@ Reglas importantes:
                 name: { type: 'STRING', description: 'Nombre o palabra clave del artículo archivado a purgar definitivamente' }
               },
               required: ['name']
+            }
+          },
+          {
+            name: 'add_income_proposed',
+            description: 'Propone registrar un nuevo ingreso extra de dinero (nómina, pago recibido, regalo) en efectivo o tarjeta.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING', description: 'Nombre o concepto del ingreso (ej: Nómina quincenal, Venta de consola, Regalo)' },
+                amount: { type: 'NUMBER', description: 'Monto del ingreso en pesos/dólares' },
+                paymentMethod: { type: 'STRING', description: 'Destino del dinero. Debe ser "efectivo" para efectivo o "tarjeta" para tarjeta/banco. Si no se puede inferir del mensaje, dejar en blanco para que el usuario elija.' }
+              },
+              required: ['name', 'amount']
             }
           },
           {
@@ -1018,6 +1048,17 @@ Reglas importantes:
       else if (toolName === 'purge_archived_item_by_name') {
         feedbackText = executePurgeArchivedItem(finalArgs);
       }
+      else if (toolName === 'add_income_proposed') {
+        const incomeData = {
+          name: finalArgs.name,
+          amount: Number(finalArgs.amount) || 0,
+          paymentMethod: finalArgs.paymentMethod as 'efectivo' | 'tarjeta'
+        };
+        if (onAddIncome) {
+          onAddIncome(incomeData);
+        }
+        feedbackText = `¡Ingreso registrado! Se añadieron $${incomeData.amount.toFixed(2)} por concepto de '${incomeData.name}' a tu presupuesto de ${incomeData.paymentMethod}.`;
+      }
       else if (toolName === 'reset_database_proposed') {
         feedbackText = executeResetDatabase();
       }
@@ -1441,6 +1482,11 @@ function ConfirmationCard({
       if (args.isRecurring === undefined) args.isRecurring = false;
       if (args.recurringDay === undefined) args.recurringDay = 10;
     }
+    else if (toolName === 'add_income_proposed') {
+      if (!args.name) args.name = 'Ingreso';
+      if (args.amount === undefined) args.amount = 0;
+      if (!args.paymentMethod) args.paymentMethod = ''; // let user choose
+    }
     else if (toolName === 'update_item_proposed') {
       const existing = items.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
       if (existing) {
@@ -1493,6 +1539,13 @@ function ConfirmationCard({
       onConfirm(messageId, editedArgs);
     } 
     else if (toolName === 'update_item_proposed') {
+      if (!editedArgs.paymentMethod) {
+        setPaymentMethodMissing(true);
+        return;
+      }
+      onConfirm(messageId, editedArgs);
+    }
+    else if (toolName === 'add_income_proposed') {
       if (!editedArgs.paymentMethod) {
         setPaymentMethodMissing(true);
         return;
@@ -2246,6 +2299,95 @@ function ConfirmationCard({
             className="flex-grow py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs"
           >
             Aprobar Registro
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3.5 ADD INCOME CARD PROPOSED BY AI
+  if (toolName === 'add_income_proposed') {
+    const handleFieldChange = (field: string, value: any) => {
+      setEditedArgs((prev: any) => ({
+        ...prev,
+        [field]: value
+      }));
+      if (field === 'paymentMethod' && value) {
+        setPaymentMethodMissing(false);
+      }
+    };
+
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4 max-w-[95%] mx-auto animate-in zoom-in duration-200">
+        <div className="flex items-center gap-2 border-b border-slate-50 pb-2">
+          <Coins className="w-4 h-4 text-emerald-500" />
+          <span className="font-bold text-xs text-slate-800">Confirmar Registro de Ingreso</span>
+        </div>
+
+        <div className="space-y-3">
+          {/* Income Name */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Concepto / Nombre</label>
+            <input
+              type="text"
+              value={editedArgs.name || ''}
+              onChange={(e) => handleFieldChange('name', e.target.value)}
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {/* Amount */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Monto ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={editedArgs.amount || 0}
+                onChange={(e) => handleFieldChange('amount', parseFloat(e.target.value) || 0)}
+                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-850 focus:outline-none font-bold"
+              />
+            </div>
+            {/* Payment Method */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Destino de Fondos</label>
+              <select
+                value={editedArgs.paymentMethod || ''}
+                onChange={(e) => handleFieldChange('paymentMethod', e.target.value)}
+                className={`w-full px-2 py-1.5 bg-slate-50 border rounded-lg text-xs text-slate-800 focus:outline-none cursor-pointer ${
+                  paymentMethodMissing && !editedArgs.paymentMethod 
+                    ? 'border-rose-500 bg-rose-50 ring-1 ring-rose-200' 
+                    : 'border-slate-200'
+                }`}
+              >
+                <option value="">-- Elige --</option>
+                <option value="efectivo">💵 Efectivo</option>
+                <option value="tarjeta">💳 Tarjeta</option>
+              </select>
+            </div>
+          </div>
+
+          {paymentMethodMissing && !editedArgs.paymentMethod && (
+            <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Por favor selecciona dónde deseas registrar este dinero.
+            </p>
+          )}
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2 pt-2 border-t border-slate-50">
+          <button
+            onClick={() => onReject(messageId)}
+            className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
+          >
+            Rechazar
+          </button>
+          <button
+            onClick={handleValidateConfirm}
+            className="flex-grow py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs"
+          >
+            Registrar Ingreso
           </button>
         </div>
       </div>

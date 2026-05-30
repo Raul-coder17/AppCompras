@@ -89,3 +89,43 @@ export const PREDEFINED_SERVICES = [
   'Celular',
   'Otro servicio'
 ];
+
+export interface Income {
+  id: string;
+  name: string;
+  amount: number;
+  paymentMethod: 'efectivo' | 'tarjeta';
+  createdAt: string;
+}
+
+export interface MonthlySummary {
+  monthId: string; // e.g. "2026-05"
+  monthName: string; // e.g. "Mayo 2026"
+  initialCashBudget: number;
+  initialCardBudget: number;
+  totalIncomesCash: number;
+  totalIncomesCard: number;
+  totalSpentCash: number;
+  totalSpentCard: number;
+  totalSpentServices: number;
+  remainingCash: number;
+  remainingCard: number;
+  createdAt: string;
+}
+
+export interface MonthlyHistoryRecord {
+  monthId: string;
+  summary: MonthlySummary;
+  items: ShoppingItem[];
+  servicePayments: ServicePayment[];
+  incomes: Income[];
+}
+
+export interface Apartado {
+  id: string;
+  name: string;
+  amount: number;
+  paymentMethod: 'efectivo' | 'tarjeta';
+  createdAt: string;
+}
+
