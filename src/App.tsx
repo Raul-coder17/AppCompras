@@ -14,7 +14,19 @@ import {
   ExternalLink,
   Calendar,
   BarChart3,
-  ArrowRight
+  ArrowRight,
+  Wallet,
+  ListTodo,
+  Plus,
+  TrendingUp,
+  Receipt,
+  Store,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  X,
+  Coins,
+  Sparkles
 } from 'lucide-react';
 import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS, ServicePayment, PREDEFINED_SERVICES, Income, MonthlySummary, MonthlyHistoryRecord, Apartado } from './types';
 import BudgetCard from './components/BudgetCard';
@@ -114,6 +126,12 @@ export default function App() {
   const [isCloseWizardOpen, setIsCloseWizardOpen] = useState(false);
   const [showMonthChangeBanner, setShowMonthChangeBanner] = useState(false);
   const [apartados, setApartados] = useState<Apartado[]>([]);
+
+  // Navigation and sidebar states
+  const [activeSection, setActiveSection] = useState<'capital' | 'shopping-list' | 'plan-purchase' | 'incomes' | 'services' | 'store-summary'>('capital');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const handleUpdateUserName = (newName: string) => {
     const trimmed = newName.trim();
@@ -758,167 +776,203 @@ export default function App() {
   const existingPlaces: string[] = places.map((place) => place.trim()).filter(Boolean) as string[];
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] pb-16 flex flex-col font-sans" id="app-root-layout">
+    <div className="min-h-screen bg-[#F8FAFC] flex font-sans text-slate-800" id="app-root-layout">
       
-      {/* Upper Navigation / Title Block with Minimal Elements */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/50 shadow-xs sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+      {/* Sidebar for Desktop & Drawer for Mobile */}
+      {/* Sidebar Backdrop for Mobile */}
+      {mobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs md:hidden transition-opacity duration-300"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Component */}
+      <aside 
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r border-slate-200/80 transition-all duration-300 md:static ${
+          mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        } ${
+          sidebarCollapsed ? 'md:w-20' : 'md:w-72'
+        } w-72 shrink-0`}
+      >
+        {/* Sidebar Header */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-slate-200/50">
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shrink-0">
+              <ShoppingBag className="w-5 h-5 text-emerald-400 stroke-[2.5]" />
+            </div>
+            {!sidebarCollapsed && (
+              <div className="animate-in fade-in duration-200">
+                <h1 className="text-base font-black text-slate-900 tracking-tight leading-none">SpendWise Pro</h1>
+                <p className="text-[10px] text-slate-400 font-bold mt-1">Presupuesto y Control</p>
+              </div>
+            )}
+          </div>
           
-          {/* Logo Brand Title */}
-          <div className="flex items-center gap-2 sm:gap-3.5">
-            <div className="w-9 h-9 sm:w-11 sm:h-11 bg-slate-900 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shadow-sm shrink-0" id="app-logo-bg">
-              <ShoppingBag className="w-4.5 h-4.5 sm:w-5.5 sm:h-5.5 text-emerald-400 stroke-[2.5]" />
+          {/* Desktop collapse button */}
+          <button 
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="hidden md:flex p-1.5 hover:bg-slate-50 border border-transparent hover:border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
+          
+          {/* Mobile close button */}
+          <button 
+            onClick={() => setMobileSidebarOpen(false)}
+            className="md:hidden p-1.5 hover:bg-slate-50 border border-transparent rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Sidebar Navigation Items */}
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {[
+            { id: 'capital', label: 'Capital y Apartados', icon: Wallet, desc: 'Presupuesto y fondos' },
+            { id: 'shopping-list', label: 'Lista de Compras', icon: ListTodo, desc: 'Mis compras e historia' },
+            { id: 'plan-purchase', label: 'Planificar Compra', icon: Plus, desc: 'Agregar productos' },
+            { id: 'incomes', label: 'Ingresos del Mes', icon: Coins, desc: 'Control de ingresos' },
+            { id: 'services', label: 'Pagos de Servicio', icon: Receipt, desc: 'Facturas y servicios' },
+            { id: 'store-summary', label: 'Cuentas por Lugar', icon: Store, desc: 'Suma por establecimiento' }
+          ].map((item) => {
+            const isActive = activeSection === item.id;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveSection(item.id as any);
+                  setMobileSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl transition-all duration-150 group cursor-pointer ${
+                  isActive 
+                    ? 'bg-slate-900 text-white shadow-sm shadow-slate-950/15' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+                title={item.label}
+              >
+                <Icon className={`w-5 h-5 shrink-0 transition-transform group-hover:scale-105 ${isActive ? 'text-emerald-400' : 'text-slate-400 group-hover:text-slate-700'}`} />
+                {!sidebarCollapsed && (
+                  <div className="text-left animate-in fade-in duration-200">
+                    <p className="text-xs font-extrabold tracking-tight leading-none">{item.label}</p>
+                    <p className={`text-[9px] font-semibold mt-0.5 ${isActive ? 'text-slate-300' : 'text-slate-400'}`}>{item.desc}</p>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Sidebar Footer - Greeting/User profile in compact sidebar */}
+        {!sidebarCollapsed && (
+          <div className="p-4 border-t border-slate-200/50 bg-slate-50/50 text-xs font-semibold text-slate-500 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2 mb-2">
+              <User className="w-4 h-4 text-emerald-500" />
+              <span>Sesión activa como:</span>
             </div>
-            <div>
-              <h1 className="text-sm sm:text-xl font-black text-slate-900 tracking-tight leading-none">Cuentas Compras</h1>
-              <p className="hidden md:block text-xs text-slate-500 font-semibold mt-1">Gestión & Control de Presupuestos</p>
-            </div>
+            <p className="text-slate-800 font-extrabold text-sm ml-6 line-clamp-1">{userName}</p>
+          </div>
+        )}
+      </aside>
+
+      {/* Content Area */}
+      <div className="flex-grow flex flex-col min-h-screen overflow-x-hidden">
+        
+        {/* Top Header Bar */}
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/50 h-16 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30 shadow-xs">
+          {/* Mobile hamburger & active section title */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden p-2 hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-600 cursor-pointer transition active:scale-95"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight capitalize">
+              {activeSection === 'capital' && 'Capital & Presupuestos'}
+              {activeSection === 'shopping-list' && 'Lista de Compras e Historias'}
+              {activeSection === 'plan-purchase' && 'Planificar Nueva Compra'}
+              {activeSection === 'incomes' && 'Ingresos Mensuales'}
+              {activeSection === 'services' && 'Control de Servicios'}
+              {activeSection === 'store-summary' && 'Cuentas por Lugar'}
+            </h2>
           </div>
 
-          {/* User profile identifier & Quick reset/csv actions */}
-          <div className="flex items-center gap-1.5 sm:gap-3">
-            
+          {/* Global top header actions */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             {/* User chip */}
             <button
               onClick={() => {
                 setTempName(userName);
                 setIsNameModalOpen(true);
               }}
-              className="flex items-center gap-1 sm:gap-2 bg-slate-50 hover:bg-slate-100 px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-full border border-slate-200 hover:border-slate-355 text-[10px] sm:text-xs text-slate-700 font-extrabold cursor-pointer transition-all shadow-xs active:scale-95 select-none shrink-0"
-              title="Cambiar tu nombre de usuario"
+              className="flex items-center gap-1 sm:gap-2 bg-slate-50 hover:bg-slate-100 px-2 sm:px-3 py-1.5 rounded-full border border-slate-200 hover:border-slate-300 text-[10px] sm:text-xs text-slate-700 font-extrabold cursor-pointer transition shadow-xs active:scale-95 shrink-0"
+              title="Cambiar tu nombre"
               id="user-profile-chip"
             >
-              <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />
-              <span><span className="hidden sm:inline">Hola, </span><span className="text-emerald-600 font-black">{userName}</span></span>
+              <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span>Hola, <span className="text-emerald-600 font-black">{userName}</span></span>
             </button>
 
             {/* Export CSV action button */}
             <button
-              onClick={handleExportData}
-              className="p-2 sm:px-4 sm:py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
-              title="Exportar compras completas a Excel / CSV"
+              onClick={() => setIsExportModalOpen(true)}
+              className="px-2.5 py-1.5 sm:px-3.5 sm:py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[10px] sm:text-xs font-extrabold flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 shrink-0"
+              title="Exportar compras completas a CSV"
               id="export-csv-btn"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Exportar CSV</span>
             </button>
 
-            {/* Reiniciar demo seed values */}
+            {/* Reset DB action button */}
             <button
               onClick={handleResetData}
-              className="p-2 sm:p-2.5 bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl transition-all cursor-pointer active:scale-95 shrink-0"
+              className="p-1.5 sm:p-2 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-xl transition cursor-pointer active:scale-95 shrink-0"
               title="Restablecer base de datos"
               id="reset-raw-db"
             >
-              <RotateCcw className="w-4 sm:w-4.5 h-4 sm:h-4.5" />
+              <RotateCcw className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
             </button>
-
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main Body Grid Dashboard */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
-
-        {/* Month Change Banner Alert */}
-        {showMonthChangeBanner && (
-          <div className="mb-6 p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-700/50 text-white rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md animate-in slide-in-from-top duration-300">
-            <div className="flex items-center gap-3">
-              <span className="text-xl shrink-0">📅</span>
-              <div>
-                <h4 className="font-extrabold text-sm text-emerald-400">¡Ha cambiado el mes calendario!</h4>
-                <p className="text-[10px] text-slate-300 font-semibold mt-0.5">Te sugerimos archivar {currentMonthName} y configurar tus fondos iniciales para el nuevo mes.</p>
+        {/* Main Content Area */}
+        <main className="flex-grow p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+          {/* Month Change Banner Alert */}
+          {showMonthChangeBanner && (
+            <div className="mb-6 p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-700/50 text-white rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md animate-in slide-in-from-top duration-300">
+              <div className="flex items-center gap-3">
+                <span className="text-xl shrink-0">📅</span>
+                <div>
+                  <h4 className="font-extrabold text-sm text-emerald-400">¡Ha cambiado el mes calendario!</h4>
+                  <p className="text-[10px] text-slate-300 font-semibold mt-0.5">Te sugerimos archivar {currentMonthName} y configurar tus fondos iniciales para el nuevo mes.</p>
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => setShowMonthChangeBanner(false)}
+                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Ocultar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMonthChangeBanner(false);
+                    setIsCloseWizardOpen(true);
+                  }}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 shadow-sm"
+                >
+                  Cerrar Mes <ArrowRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
-            <div className="flex gap-2 shrink-0">
-              <button
-                onClick={() => setShowMonthChangeBanner(false)}
-                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                Ocultar
-              </button>
-              <button
-                onClick={() => {
-                  setShowMonthChangeBanner(false);
-                  setIsCloseWizardOpen(true);
-                }}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 shadow-sm"
-              >
-                Cerrar Mes <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-        
-        {/* Navigation Tabs - Modern Glass Switch */}
-        <div className="flex justify-center mb-8" id="view-mode-tabs">
-          <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-2xl w-full sm:w-auto shadow-xs">
-            <button
-              onClick={() => setActiveTab('list')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
-                activeTab === 'list' 
-                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-              }`}
-            >
-              <ShoppingBag className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
-              <span>
-                <span className="inline sm:hidden">Lista</span>
-                <span className="hidden sm:inline">Lista de Compras</span>
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('calendar')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
-                activeTab === 'calendar' 
-                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-              }`}
-            >
-              <Calendar className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
-              <span>
-                <span className="inline sm:hidden">Calendario</span>
-                <span className="hidden sm:inline">Calendario Mensual</span>
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('charts')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
-                activeTab === 'charts' 
-                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
-              <span>
-                <span className="inline sm:hidden">Gráficos</span>
-                <span className="hidden sm:inline">Gráficos Analíticos</span>
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-150 cursor-pointer active:scale-95 ${
-                activeTab === 'history' 
-                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-              }`}
-            >
-              <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-slate-700 shrink-0" />
-              <span>
-                <span className="inline sm:hidden">Historial</span>
-                <span className="hidden sm:inline">Historial Mensual</span>
-              </span>
-            </button>
-          </div>
-        </div>
+          )}
 
-        {activeTab === 'list' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-200">
-            
-            {/* LEFT 2 COLS: Budget Metrics Board & Purchase List */}
-            <div className="lg:col-span-2 space-y-8 flex flex-col">
-              
-              {/* Top metrics with inline customizable budget cap */}
+          {/* Section Rendering */}
+          {activeSection === 'capital' && (
+            <div className="max-w-5xl mx-auto animate-in fade-in duration-200">
               <BudgetCard 
                 summary={budgetSummary} 
                 onUpdateBudget={handleUpdateBudget}
@@ -931,42 +985,123 @@ export default function App() {
                 onWithdrawFromApartado={handleWithdrawFromApartado}
                 onDeleteApartado={handleDeleteApartado}
               />
-
-              {/* List with rich actions: edit inline, check toggles, filters, sorts */}
-              <div className="flex-grow">
-                <PurchaseList 
-                  items={items}
-                  archivedItems={archivedItems}
-                  selectedStoreFilter={selectedStoreFilter}
-                  onToggleBought={handleToggleBought}
-                  onDeleteItem={handleDeleteItem}
-                  onUpdateItem={handleUpdateItem}
-                  onRestoreItem={handleRestoreItem}
-                  onPurgeArchivedItem={handlePurgeArchivedItem}
-                  categories={categories}
-                />
-              </div>
-              
             </div>
+          )}
 
-            {/* RIGHT 1 COL: Planning form & Store ledger aggregates */}
-            <div className="space-y-8">
-              
-              {/* Dynamic Interactive Input form */}
+          {activeSection === 'shopping-list' && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              {/* Internal Sub-Tabs Navigation for stories */}
+              <div className="flex justify-center" id="view-mode-tabs">
+                <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-2xl w-full sm:w-auto shadow-xs">
+                  <button
+                    onClick={() => setActiveTab('list')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      activeTab === 'list' 
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <ListTodo className="w-4 h-4 text-slate-700 shrink-0" />
+                    <span>Lista Actual</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('calendar')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      activeTab === 'calendar' 
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <Calendar className="w-4 h-4 text-slate-700 shrink-0" />
+                    <span>Calendario</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('charts')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      activeTab === 'charts' 
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <BarChart3 className="w-4 h-4 text-slate-700 shrink-0" />
+                    <span>Gráficos</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('history')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      activeTab === 'history' 
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4 text-slate-700 shrink-0" />
+                    <span>Historial</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-Tab content */}
+              {activeTab === 'list' ? (
+                <div className="max-w-5xl mx-auto">
+                  <PurchaseList 
+                    items={items}
+                    archivedItems={archivedItems}
+                    selectedStoreFilter={selectedStoreFilter}
+                    onToggleBought={handleToggleBought}
+                    onDeleteItem={handleDeleteItem}
+                    onUpdateItem={handleUpdateItem}
+                    onRestoreItem={handleRestoreItem}
+                    onPurgeArchivedItem={handlePurgeArchivedItem}
+                    categories={categories}
+                  />
+                </div>
+              ) : activeTab === 'calendar' ? (
+                <ExpenseCalendar 
+                  items={items} 
+                  servicePayments={servicePayments} 
+                />
+              ) : activeTab === 'charts' ? (
+                <ExpenseCharts
+                  items={items}
+                  servicePayments={servicePayments}
+                  categories={categories}
+                  cashBudget={cashBudget}
+                  cardBudget={cardBudget}
+                />
+              ) : (
+                <MonthlyHistory history={monthlyHistory} />
+              )}
+            </div>
+          )}
+
+          {activeSection === 'plan-purchase' && (
+            <div className="max-w-2xl mx-auto animate-in fade-in duration-200">
               <AddItemForm 
-                onAddItem={handleAddItem} 
+                onAddItem={(item) => {
+                  handleAddItem(item);
+                  setActiveSection('shopping-list');
+                  setActiveTab('list');
+                }} 
                 existingPlaces={existingPlaces}
                 onAddPlace={handleAddPlace}
                 categories={categories}
                 onAddCategory={handleAddCategory}
               />
+            </div>
+          )}
 
+          {activeSection === 'incomes' && (
+            <div className="max-w-3xl mx-auto animate-in fade-in duration-200">
               <IncomesManager
                 incomes={incomes}
                 onAddIncome={handleAddIncome}
                 onDeleteIncome={handleDeleteIncome}
               />
+            </div>
+          )}
 
+          {activeSection === 'services' && (
+            <div className="max-w-4xl mx-auto animate-in fade-in duration-200">
               <ServicePayments
                 payments={servicePayments}
                 services={serviceOptions}
@@ -974,54 +1109,38 @@ export default function App() {
                 onDeletePayment={handleDeleteServicePayment}
                 onAddService={handleAddServiceOption}
               />
+            </div>
+          )}
 
-              {/* Aggregated store financial sums ("haciendo cuentas por lugar") */}
+          {activeSection === 'store-summary' && (
+            <div className="max-w-3xl mx-auto animate-in fade-in duration-200">
               <StoreSummary 
                 items={items}
                 selectedStoreFilter={selectedStoreFilter}
-                onSelectStoreFilter={setSelectedStoreFilter}
+                onSelectStoreFilter={(store) => {
+                  setSelectedStoreFilter(store);
+                  setActiveSection('shopping-list');
+                  setActiveTab('list');
+                }}
               />
-
             </div>
+          )}
+        </main>
 
+        {/* Page Footer */}
+        <footer className="mt-auto border-t border-slate-100 bg-white" id="app-footer">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-450">
+            <div>
+              <p className="font-semibold text-slate-400">SpendWise Pro © 2026</p>
+            </div>
+            <div className="flex items-center gap-1.5 text-slate-400 font-semibold text-slate-500">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500 fill-indigo-500/10 inline" />
+              <span>Tecnología inteligente para la optimización de tu capital y planificación de compras.</span>
+            </div>
           </div>
-        ) : activeTab === 'calendar' ? (
-          <div className="animate-in fade-in duration-200">
-            <ExpenseCalendar 
-              items={items} 
-              servicePayments={servicePayments} 
-            />
-          </div>
-        ) : activeTab === 'charts' ? (
-          <div className="animate-in fade-in duration-200">
-            <ExpenseCharts
-              items={items}
-              servicePayments={servicePayments}
-              categories={categories}
-              cashBudget={cashBudget}
-              cardBudget={cardBudget}
-            />
-          </div>
-        ) : (
-          <div className="animate-in fade-in duration-200">
-            <MonthlyHistory history={monthlyHistory} />
-          </div>
-        )}
-      </main>
+        </footer>
 
-      {/* Clean Subtle Page Footer */}
-      <footer className="mt-auto border-t border-slate-100 bg-white" id="app-footer">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-400">
-          <div>
-            <p className="font-medium">Gestor de Compras y Presupuesto © 2026</p>
-          </div>
-          <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-            <span>Creado con</span>
-            <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline" />
-            <span>para compras eficientes y controladas.</span>
-          </div>
-        </div>
-      </footer>
+      </div>
 
       {isResetModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
@@ -1055,6 +1174,7 @@ export default function App() {
           </div>
         </div>
       )}
+
       {isNameModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-in fade-in duration-200" role="dialog" aria-modal="true">
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl border border-slate-150 p-6 space-y-4 animate-in zoom-in duration-250">
@@ -1107,6 +1227,57 @@ export default function App() {
         </div>
       )}
 
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-in fade-in duration-200" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-150 p-6 space-y-4 animate-in zoom-in duration-250">
+            <div className="flex items-start gap-3.5 border-b border-slate-50 pb-2">
+              <div className="h-10 w-10 rounded-xl bg-slate-900 text-emerald-400 flex items-center justify-center shrink-0">
+                <Download className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-black text-slate-900">Exportar lista de compras</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Formato Excel / CSV</p>
+              </div>
+            </div>
+            
+            <div className="space-y-2 text-xs font-semibold text-slate-650 leading-relaxed">
+              <p>
+                Estás a punto de descargar un archivo en formato <strong>CSV (delimitado por comas)</strong> compatible con Excel, Google Sheets y otros programas de hojas de cálculo.
+              </p>
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-[11px] font-bold text-slate-500 space-y-1.5">
+                <p className="flex items-center gap-1.5 text-slate-700">
+                  <span className="text-emerald-500 font-bold">✓</span> Contiene todos los artículos planificados del mes activo.
+                </p>
+                <p className="flex items-center gap-1.5 text-slate-700">
+                  <span className="text-emerald-500 font-bold">✓</span> Detalla productos, precios, cantidades, totales, categorías y métodos de pago.
+                </p>
+                <p className="flex items-center gap-1.5 text-slate-700">
+                  <span className="text-emerald-500 font-bold">✓</span> Podrás abrirlo en cualquier computadora o dispositivo celular.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  handleExportData();
+                  setIsExportModalOpen(false);
+                }}
+                className="px-4.5 py-2 rounded-xl text-xs font-black text-white bg-slate-900 hover:bg-slate-800 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Download className="w-3.5 h-3.5" /> Descargar CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <MonthCloseWizard
         isOpen={isCloseWizardOpen}
         onClose={() => setIsCloseWizardOpen(false)}
@@ -1147,6 +1318,7 @@ export default function App() {
         currentMonth={currentMonth}
         onAddIncome={handleAddIncome}
         onDeleteIncome={handleDeleteIncome}
+        apartados={apartados}
       />
 
     </div>

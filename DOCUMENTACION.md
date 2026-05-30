@@ -1,162 +1,250 @@
-# Documentación Técnica Completa: Cuentas Compras — Gestor de Presupuestos & Asistente Inteligente IA
+# Documentación Técnica & Guía del Usuario: SpendWise Pro
 
-Esta documentación describe la arquitectura, tecnologías, lógica interna, estructura de datos y despliegue de **Cuentas Compras**, una Aplicación Web Progresiva (PWA) de alto rendimiento diseñada para la planificación de compras, control estricto de presupuestos financieros y automatización inteligente mediante inteligencia artificial multimodal.
+Bienvenido a la documentación oficial de **SpendWise Pro (Gestión Financiera & Control Inteligente)**. Esta es una plataforma web progresiva (PWA) de alto rendimiento, diseñada para la planificación minuciosa de compras, el control absoluto de presupuestos personales o familiares y la automatización inteligente a través de Inteligencia Artificial multimodal (texto y visión).
+
+La aplicación combina un diseño visual premium estilo *Apple/Google Glassmorphism* de alto contraste y legibilidad adaptada, junto con un motor financiero ultra-preciso desarrollado en React 19 y TypeScript.
 
 ---
 
-## 1. Módulos y Arquitectura de la Aplicación
+## 1. Filosofía del Producto & Usabilidad
 
-La aplicación se compone de cinco módulos interactivos de alta fidelidad, sincronizados reactivamente en el estado de React (`App.tsx`) y con persistencia inmediata en el `localStorage` del dispositivo para funcionamiento offline.
+**SpendWise Pro** fue diseñada bajo la filosofía de **Accesibilidad y Transparencia Financiera**:
+* **Control en Dos Canastas:** Separa tus finanzas de manera realista en **Efectivo en Mano** y **Tarjeta / Transferencia**. Esto evita la confusión común de mezclar dinero líquido con saldos bancarios.
+* **Capital Real vs. Capital Libre:** El sistema descuenta de forma automática el dinero que tienes comprometido en tus planes de compras pendientes o resguardado en tus apartados de ahorro. Así, siempre sabes exactamente cuánto dinero *libre y real* te queda para gastar hoy.
+* **Diseño Premium y Legible:** Utiliza una tipografía elegante de alta escala (Outfit y Plus Jakarta Sans) con amplias áreas interactivas táctiles y colores de alto contraste clasificados por HSL, pensados especialmente para adultos mayores o personas con fatiga visual.
+
+---
+
+## 2. Arquitectura de Módulos y Flujos
+
+La aplicación está orquestada de forma centralizada a través de un estado reactivo bidireccional en `App.tsx`, garantizando que cualquier cambio en presupuestos, artículos o ingresos actualice la interfaz de manera instantánea (cero latencia de recarga).
 
 ```mermaid
 graph TD
-    subgraph Frontend App (React 19 & Vite 6)
-        App[App.tsx - Central State Orchestrator] --> BC[BudgetCard.tsx - Presupuesto & Metas]
-        App --> PL[PurchaseList.tsx - Tabla Interactiva & Filtros]
-        App --> AIF[AddItemForm.tsx - Añadir Manual & Categorías]
-        App --> SP[ServicePayments.tsx - Uber/Didi & Servicios Recurrentes]
-        App --> SS[StoreSummary.tsx - Resumen Financiero por Tienda]
-        App --> EC[ExpenseCalendar.tsx - Calendario Mensual de Gastos]
-        App --> AI[AIAssistant.tsx - Chatbot & OCR Multimodal Gemini]
+    subgraph SpendWise Pro (Core Frontend)
+        App[App.tsx - Orquestador Central de Estado] --> SC[Sidebar - Menú Lateral de Navegación]
+        App --> BC[BudgetCard.tsx - Módulo Capital & Apartados]
+        App --> PL[PurchaseList.tsx - Tabla Interactiva, Buscador & Sub-Pestañas]
+        App --> AIF[AddItemForm.tsx - Formulario Planificador de Compras]
+        App --> SP[ServicePayments.tsx - Control de Pagos y Servicios]
+        App --> SS[StoreSummary.tsx - Analítica de Cuentas por Lugar]
+        App --> IM[IncomesManager.tsx - Historial de Ingresos del Mes]
+        App --> AI[AIAssistant.tsx - Asistente Gemini Chatbot & OCR de Recibos]
     end
     
-    subgraph Local Storage
-        App <--> LS[(Browser LocalStorage - Datos Persistentes)]
+    subgraph Capa de Datos Local (Seguridad & Offline)
+        App <--> LS[(Browser LocalStorage - Sincronización Inmediata)]
     end
 
-    subgraph External APIs
-        AI <--> Gemini[Google Gemini API - Modelos Flash/Pro en Cascada]
+    subgraph Capa Inteligente Externa
+        AI <--> Gemini[Google Gemini REST API - Orquestación en Cascada]
     end
 ```
 
-### Detalle de Módulos Principales:
-* **Gestión de Presupuestos (`BudgetCard.tsx`):** Divide el capital total disponible en dos canastas: **Efectivo** y **Tarjeta/Transferencia**. Muestra en tiempo real estadísticas de capital total comprometido, restante, gastado directo y planificado. Cuenta con atajos táctiles rápidos para agregar fondos.
-* **Formulario de Adición Inteligente (`AddItemForm.tsx`):** Permite registrar artículos indicando nombre, precio, cantidad, categoría, establecimiento y método de pago. Ofrece sugerencias de autocompletado en tiempo real basadas en compras pasadas.
-* **Filtro y Listado General (`PurchaseList.tsx`):** Controla el estado comprado/pendiente del artículo con un solo toque. Incluye barra de búsqueda por texto, filtrado rápido por chips de categorías de alto contraste, ordenamiento inteligente por fecha/precio, y un historial/papelera de reciclaje para restaurar artículos borrados.
-* **Resumen Financiero por Tienda (`StoreSummary.tsx`):** Agrupa matemáticamente los artículos para calcular el monto exacto comprometido en cada establecimiento y permite hacer clic en el nombre de una tienda para filtrar el listado global instantáneamente.
-* **Calendario Mensual de Gastos (`ExpenseCalendar.tsx`):** Apartado temporal interactivo. Consolida compras (`bought: true`) y pagos de servicios por día en una cuadrícula mensual limpia, mostrando badges de gasto diario y un cajón esmerilado que detalla los artículos comprados al hacer clic en un día.
-* **Asistente Inteligente IA (`AIAssistant.tsx`):** Panel deslizable estilo lateral (*drawer*) que permite controlar el 100% de la aplicación mediante lenguaje natural (texto) o escaneo OCR de fotografías de tickets físicos.
+---
+
+## 3. Guía Completa de Módulos: Para qué sirve y Cómo usar cada uno
+
+### 3.1. Capital y Apartados (`capital`)
+Módulo centralizador del dinero total del usuario. Se encarga de la visualización y distribución de tu capital neto.
+* **¿Para qué sirve?**
+  * Para ver cuánto dinero total tienes acumulado.
+  * Para resguardar dinero en "Apartados" (cochinitos de ahorro digital) de modo que ese dinero quede protegido y se reste de tus presupuestos utilizables cotidianos.
+  * Para realizar el **Cierre de Mes** e iniciar un nuevo mes financiero de forma limpia.
+* **¿Cómo usarlo?**
+  * **Modificar Presupuestos:** Haz clic en el icono de lápiz al lado de *Efectivo en mano* o *Tarjeta / Transferencia* para corregir tus montos actuales.
+  * **Crear Apartado:** Presiona en `+ Crear Apartado` dentro de la tarjeta de efectivo o tarjeta. Dale un nombre (ej. "Pago de Renta" o "Viaje") y define tu monto meta.
+  * **Depositar / Retirar de Apartados:** Haz clic en los botones `+` o `-` en la línea del apartado. Introduce la cantidad y presiona `Ok` para transferir fondos de tus presupuestos libres al apartado o viceversa.
+  * **Eliminar Apartado:** Haz clic en el bote de basura. El dinero resguardado regresará automáticamente a tu saldo libre disponible.
+  * **Cierre de Mes:** Cuando termine el mes calendario actual, presiona el botón negro `Cerrar Mes Actual`. El asistente te guiará para consolidar tus datos, guardar los históricos, y configurar tus saldos iniciales del nuevo mes.
 
 ---
 
-## 2. Pila Tecnológica (Tech Stack)
-
-La aplicación utiliza tecnologías modernas para garantizar tiempos de carga instantáneos (menos de 300ms) y compatibilidad PWA multiplataforma:
-
-1. **Core:**
-   - **React 19 (React-DOM):** Renderizado de alto rendimiento basado en reconciliación reactiva.
-   - **TypeScript 5:** Tipado estricto para evitar errores sintácticos o en tiempo de ejecución.
-   - **Vite 6:** Motor de construcción ultrarrápido con soporte nativo de HMR (Hot Module Replacement).
-2. **Estilos y Experiencia Visual (Aesthetics):**
-   - **Tailwind CSS v4:** Motor de estilos JIT optimizado que aprovecha variables CSS nativas.
-   - **Glassmorphism y Backdrop Filters:** Uso extensivo del efecto vidrio translúcido (`.glass-card` con `backdrop-blur-md` y reflejos suavizados).
-   - **Tipografía Google Fonts:** Integración de **Outfit** y **Plus Jakarta Sans** para máxima legibilidad tipográfica.
-3. **Persistencia e Instalación:**
-   - **Service Workers & PWA:** Configurado vía `vite-plugin-pwa` para almacenar en caché los activos estáticos y permitir la ejecución 100% offline e instalación en móviles como app nativa.
-   - **Almacenamiento Local:** Sincronización del estado con `localStorage`.
-
----
-
-## 3. Lógica del Asistente Gemini IA (`AIAssistant.tsx`)
-
-El asistente implementa una lógica avanzada de orquestación de prompts e invocación de herramientas (Tool Calling) a través de la API REST de Google Gemini:
-
-```
-[Usuario escribe o sube Foto] 
-         │
-         ▼
-[AIAssistant.tsx - API Call] ──(Pasa State de compras, presupuestos, tiendas y categorías)
-         │
-         ▼
-[Google Gemini Model] ──(Aplica Reglas de Negocio)
-         │
-         ├──► [Caso Conversacional/Directo] ──► Retorna texto breve al chat
-         │
-         └──► [Caso Acción/Registro] ──► Retorna Tool Call (Lanza Tarjeta de Confirmación)
-```
-
-### Características Clave del Motor de IA:
-1. **Lógica de Cascada y Failover Automático:**
-   Para prever la congestión del servidor o el agotamiento de límites de la cuota gratuita, el asistente implementa una alternancia automática en cascada de modelos en tiempo real. Si el modelo actual arroja un error `429` o similar, rota automáticamente:
-   $$\text{gemini-2.5-flash} \longrightarrow \text{gemini-2.0-flash} \longrightarrow \text{gemini-1.5-flash} \longrightarrow \text{gemini-2.5-pro} \longrightarrow \text{gemini-1.5-pro}$$
-2. **Análisis Multimodal de Recibos (OCR):**
-   Cuando el usuario toma una foto o sube un ticket de compra, el asistente convierte la imagen a Base64 y la transmite a Gemini. El modelo analiza la imagen, extrae el nombre de la tienda, lista de productos con precios unitarios, cantidades, deduce la categoría idónea y selecciona el método de pago más factible indicado en el papel.
-3. **Diferenciación de Verbos (Compra Directa vs Planificación):**
-   El prompt del sistema enseña a la IA a discriminar la naturaleza del registro basándose en los tiempos verbales:
-   - *Verbos pasados/efectuados:* "Compré", "Gasté", "Pagué", "Ticket escaneado" $\longrightarrow$ `bought = true` (Afecta directamente el gasto en efectivo/tarjeta del mes).
-   - *Verbos futuros/intenciones:* "Añade a la lista", "Quiero comprar", "Planeo comprar" $\longrightarrow$ `bought = false` (Se registra como pendiente y reserva fondos planificados).
-4. **Tarjetas de Confirmación Interactivas ("Human-in-the-Loop"):**
-   Para evitar registros erróneos debidos a imágenes borrosas o ruido visual, Gemini genera un **Tool Call** (`add_item_proposed` o `add_multiple_items_proposed`). Esto despliega una tarjeta de confirmación editable en la interfaz del chat. El usuario puede refinar nombres, precios y métodos de pago antes de presionar "Confirmar e Insertar".
-5. **Propuesta Instantánea al Primer Mensaje:**
-   El motor de IA está optimizado bajo la directriz estricta de no entablar conversaciones extensas innecesarias. Al detectar una solicitud de registro, Gemini lanza la tarjeta interactiva de inmediato en su primer mensaje, asumiendo valores lógicos editables para priorizar la velocidad de acción.
+### 3.2. Lista de Compras e Historias (`shopping-list`)
+El centro interactivo de la aplicación. Agrupa la lista de compras del mes junto con las herramientas analíticas organizadas en 4 sub-pestañas:
+1. **Lista Actual:**
+   * **¿Para qué sirve?** Para el control en tiempo real de lo que planeas comprar y lo que ya compraste en el supermercado o tiendas.
+   * **¿Cómo usarlo?**
+     * **Marcar Comprado:** Haz clic en la casilla de verificación (checkbox) al lado de un artículo. Si era planificado (pendiente), pasará a estado comprado, restando de forma automática el dinero del presupuesto libre del método de pago que elegiste.
+     * **Buscador & Filtros:** Escribe palabras clave en la barra de búsqueda o presiona los chips de colores para ver solo ciertas categorías (Alimentos, Hogar, Salud) o métodos de pago (Efectivo, Tarjeta, Transferencia).
+     * **Edición Rápida:** Haz clic en el icono de lápiz para editar inline el precio, nombre o cantidad de un producto.
+     * **Eliminación y Papelera:** Presiona el bote de basura. Si borraste algo por error, desplázate hasta la sección inferior `Artículos Eliminados (Historial)`, despliega el cajón y haz clic en la flecha de restauración para regresarlo a tu lista activa.
+2. **Calendario:**
+   * **¿Para qué sirve?** Para ver de forma visual en qué días del mes gastaste más dinero y auditar compras pasadas por fecha.
+   * **¿Cómo usarlo?** Haz clic en cualquier día que tenga un badge monetario. Aparecerá una ventana esmerilada con el desglose exacto de los artículos y servicios pagados ese día.
+3. **Gráficos:**
+   * **¿Para qué sirve?** Proporciona un desglose visual mediante gráficos circulares e histogramas de tus gastos organizados por categorías de consumo. Ideal para identificar fugas de dinero.
+4. **Historial:**
+   * **¿Para qué sirve?** Acceso directo para auditar cualquier mes anterior cerrado (ej. "Enero 2026").
+   * **¿Cómo usarlo?** Selecciona un mes en el selector para ver el reporte de balances totales de ingresos, gastos, ahorros generados y el desglose de los artículos comprados en ese periodo.
 
 ---
 
-## 4. Lógica de Negocio del Calendario (`ExpenseCalendar.tsx`)
-
-El calendario organiza los egresos mensuales utilizando una cuadrícula dinámica que calcula los sumatorios de gastos diarios:
-
-1. **Agrupamiento y Mezclado:**
-   Filtra los artículos que tienen `bought = true` y los combina con los registros de pagos de servicios recurrentes (`servicePayments`). Ambos arrays tienen la marca temporal `createdAt` en formato ISO string.
-2. **Mapeo de Fechas:**
-   Agrupa los elementos mediante una clave diaria `YYYY-MM-DD` que corresponde estrictamente al mes y año seleccionado por el usuario en los controles de navegación.
-3. **Generación de la Grilla (42 celdas):**
-   - Determina el primer día del mes para calcular el retraso de celdas iniciales correspondientes al mes anterior.
-   - Genera los días activos del mes en curso asociándoles la suma consolidada de dinero gastado para mostrar el badge monetario (ej: `$45`).
-   - Rellena las celdas finales del mes siguiente para mantener una cuadrícula uniforme de 6 filas y evitar saltos de layout bruscos.
-4. **Desglose en Drawer:**
-   Al pulsar una celda activa que tiene gastos, el componente filtra el array combinado usando la clave `YYYY-MM-DD` seleccionada y expone las transacciones detalladas con tipografía de alta legibilidad para personas de la tercera edad.
+### 3.3. Planificar Compra (`plan-purchase`)
+* **¿Para qué sirve?**
+  * Para simular y cotizar compras antes de realizarlas físicamente. Te permite saber el impacto exacto que tendrá tu lista en tus presupuestos libres antes de gastar un solo centavo.
+* **¿Cómo usarlo?**
+  * Ingresa el nombre del producto, establecimiento, precio unitario y cantidad.
+  * Selecciona el método de pago y la categoría.
+  * Presiona `Añadir a la Lista`. El sistema registrará el artículo como **Pendiente (Planificado)** y te redirigirá a la Lista de Compras para que lo tengas listo al ir de compras.
 
 ---
 
-## 5. Modelado y Estructura de Datos (`src/types.ts`)
+### 3.4. Ingresos del Mes (`incomes`)
+* **¿Para qué sirve?**
+  * Para registrar la entrada de flujos de dinero (nóminas, transferencias, ventas extras, regalos) que incrementan directamente tus balances disponibles.
+* **¿Cómo usarlo?**
+  * Escribe el concepto (ej. "Quincena" o "Bono") y el monto de dinero.
+  * Elige si el ingreso entra en **Efectivo** o en tu **Tarjeta / Banco**.
+  * Haz clic en registrar. Tus presupuestos aumentarán de manera reactiva al instante.
 
-La aplicación se rige por interfaces estrictas de TypeScript:
+---
 
-### 🛍️ ShoppingItem (Artículos de Compra)
+### 3.5. Pagos de Servicio (`services`)
+* **¿Para qué sirve?**
+  * Para llevar una contabilidad separada de tus egresos recurrentes o fijos obligatorios (suscripciones de streaming, recibo de luz, agua, internet, viajes en Uber/Didi).
+* **¿Cómo usarlo?**
+  * Elige un servicio predefinido o introduce uno nuevo personalizado.
+  * Ingresa el monto a pagar y el método de pago utilizado.
+  * Indica si es un pago mensual recurrente y en qué día se realiza el cargo automático.
+  * Presiona registrar. El pago se sumará al gasto consolidado total y se reflejará en tu calendario mensual.
+
+---
+
+### 3.6. Cuentas por Lugar (`store-summary`)
+* **¿Para qué sirve?**
+  * Para analizar analíticamente en qué tiendas o establecimientos estás gastando más dinero (ej. Oxxo, Walmart, Amazon, Mercadona).
+* **¿Cómo usarlo?**
+  * Visualiza el ranking de establecimientos con sus barras de porcentaje acumulado de gasto.
+  * **Acción de Redirección:** Haz clic en cualquiera de las tarjetas de las tiendas. **SpendWise Pro** activará automáticamente el filtro por ese establecimiento y te redirigirá inmediatamente a la **Lista de Compras** mostrando únicamente los artículos comprados o planificados en esa tienda seleccionada.
+
+---
+
+### 3.7. Asistente Inteligente IA (`AIAssistant.tsx`)
+Una de las joyas de la corona de la aplicación. Tu asistente virtual basado en Google Gemini.
+* **¿Para qué sirve?**
+  * Para interactuar con la aplicación mediante lenguaje natural (puedes dictar texto o hablar con tu voz).
+  * Para escanear tickets de compra y recibos de supermercados mediante la cámara de tu celular, automatizando el registro completo de la compra en segundos.
+* **¿Cómo usarlo?**
+  * Abre el asistente presionando el botón flotante esmerilado de destellos en la esquina inferior derecha.
+  * **Interacción por Voz/Texto:** Puedes escribir en el chat o presionar el icono de micrófono para hablar. Por ejemplo, dile: *"Añade pan y leche a mi lista de compras para mañana en efectivo"*, o bien: *"Registra un ingreso de $500 pesos en efectivo que me regaló mi tía"*.
+  * **Escaneo de Tickets:** Presiona el botón de cámara, toma una foto nítida de un ticket de compras físico y envíalo. El asistente procesará la imagen por OCR y extraerá todos los artículos con sus precios unitarios correspondientes.
+  * **Tarjetas de Confirmación Interactiva ("Human-in-the-loop"):** Ante cualquier comando de registro o escaneo, el asistente no insertará los datos a ciegas; en su lugar, desplegará una **tarjeta de confirmación interactiva** dentro del chat. Podrás revisar, editar cantidades, modificar precios o categorizaciones erróneas directamente sobre la tarjeta y, finalmente, presionar **Confirmar e Insertar** para aplicarlo a la base de datos de forma segura.
+
+---
+
+### 3.7.1. 🔑 GUÍA FÁCIL: ¿Cómo activar el Asistente Inteligente (API Key de Google)?
+> [!NOTE]
+> **¿Qué es la API Key?**
+> Imagina que es una "llave digital" o contraseña personal de cortesía que Google te regala. Esta llave le permite a tu celular conectarse directamente con el "cerebro inteligente" de Google Gemini para procesar tus fotos y entender tus palabras. **¡Es 100% gratuita para tu uso personal!**
+
+#### Paso 1: Obtener tu Llave Gratis de Google
+1. **Entra a la página oficial:** Haz clic o toca este enlace desde tu celular o computadora: **[Google AI Studio (https://aistudio.google.com/)](https://aistudio.google.com/)**.
+2. **Inicia Sesión:** Entra con tu correo de Gmail común (el mismo que usas en tu correo o en tu teléfono Android).
+3. **Presiona el botón azul:** Busca y toca el botón que dice **`Create API Key`** (o *"Crear clave de API"* si te aparece en español).
+4. **Crea y Copia la Llave:**
+   * Selecciona la opción que dice *"Create API key in new project"* (Crear llave en nuevo proyecto).
+   * Te aparecerá un cuadro con una clave de letras y números largos (ejemplo: `AIzaSyD5x...`).
+   * Toca el botón azul que dice **`Copy`** (Copiar) para guardarla en la memoria de tu teléfono de forma automática.
+
+#### Paso 2: Colocar la Llave en SpendWise Pro
+1. Abre tu aplicación **SpendWise Pro** en tu celular o computadora.
+2. Abre el chat del Asistente de IA presionando el **botón circular de destellos verdes** en la parte inferior derecha.
+3. En la parte superior de la ventana del chat que se abre, busca y toca el icono de **Ajustes** (tiene la forma de un **engranaje** o rueda dentada ⚙️).
+4. Verás un cuadro de texto que dice: *"API Key de Gemini"*. Toca ese cuadro, mantén presionado con tu dedo por un segundo y selecciona la opción **Pegar** (Paste) para que aparezca la clave larga que copiaste en el Paso 1.
+5. Presiona el botón verde que dice **`Guardar API Key`**. 
+
+**¡Listo!** El engranaje se cerrará y el asistente ya estará encendido. Ahora puedes hablarle presionando el icono de micrófono, escribirle, o subirle fotos de tus tickets de compras sin problemas.
+
+---
+
+> [!IMPORTANT]
+> **🔒 Privacidad y Seguridad Absoluta:**
+> Tu llave de API **solo se guarda de forma segura en la memoria interna de tu propio celular o computadora** (a través de `localStorage`). SpendWise Pro **NUNCA** comparte tu clave ni tus datos financieros con servidores externos, ni con nosotros, ni con terceros. Los datos viajan directamente de tu celular a Google de forma totalmente cifrada e intransferible.
+
+---
+
+### 3.8. Exportación de Datos en Formato CSV / Excel
+* **¿Para qué sirve?**
+  * Para realizar respaldos físicos, compartir tu lista de compras o abrir la contabilidad en programas profesionales como Microsoft Excel, Google Sheets, Numbers de Apple u otros.
+* **¿Cómo usarlo?**
+  * Haz clic en el botón `Exportar CSV` en la barra superior de cabecera.
+  * Se desplegará un **modal de seguridad y advertencia**. El sistema te explicará exactamente qué datos se descargarán.
+  * Presiona `Descargar CSV` para guardar el archivo en la memoria de tu dispositivo, o presiona `Cancelar` si deseas retractarte.
+
+---
+
+## 4. Modelado y Estructura de Datos (`src/types.ts`)
+
+La coherencia de datos financieros se rige estrictamente por interfaces tipadas de TypeScript:
+
+### 🛍️ ShoppingItem (Artículos)
 ```typescript
 export interface ShoppingItem {
   id: string;
   name: string;
-  place: string;            // Oxxo, Mercadona, Amazon, etc.
-  price: number;            // Precio unitario
-  quantity: number;         // Cantidad
-  category: string;         // comida, hogar, tecnologia, ropa, salud, otros
-  bought: boolean;          // true = Comprado, false = Planificado/Pendiente
-  paymentMethod: 'efectivo' | 'tarjeta' | 'transferencia';
-  createdAt: string;        // ISO Date String
+  place: string;                 // Establecimiento de compra (ej. Oxxo)
+  price: number;                 // Precio unitario
+  quantity: number;              // Cantidad de unidades
+  category: string;              // comida, hogar, tecnologia, ropa, salud, otros
+  bought: boolean;               // true = Comprado (resta saldo), false = Planificado (apartado)
+  paymentMethod: PaymentMethod;  // 'efectivo' | 'tarjeta' | 'transferencia'
+  createdAt: string;             // ISO Date String
 }
 ```
 
-### 🚌 ServicePayment (Servicios Recurrentes)
+### 💰 Income (Ingresos Rápidos)
 ```typescript
-export interface ServicePayment {
+export interface Income {
   id: string;
-  service: string;          // Uber, Didi, Internet, Gas, etc.
-  amount: number;           // Monto pagado
-  paymentMethod: 'efectivo' | 'tarjeta' | 'transferencia';
-  createdAt: string;        // ISO Date String
+  name: string;                  // Concepto del ingreso
+  amount: number;                // Monto del flujo recibido
+  paymentMethod: 'efectivo' | 'tarjeta'; // Destino del dinero
+  createdAt: string;             // ISO Date String
 }
 ```
 
-### 🗑️ ArchivedItem (Historial de Papelera)
+### 🔒 Apartado (Pockets de Ahorro)
 ```typescript
-export interface ArchivedItem extends ShoppingItem {
-  deletedAt: string;        // Fecha de archivado
+export interface Apartado {
+  id: string;
+  name: string;                  // Propósito del apartado
+  amount: number;                // Fondos resguardados bajo candado
+  paymentMethod: 'efectivo' | 'tarjeta'; // Origen del capital resguardado
+  createdAt: string;             // ISO Date String
 }
 ```
 
 ---
 
-## 6. Despliegue y Pruebas en Red Local
+## 5. Pila Tecnológica & Optimización Técnica
 
-### Correr la App localmente:
-1. Instalar dependencias necesarias:
+**SpendWise Pro** está construida sobre una pila moderna enfocada en la velocidad y el diseño táctil premium:
+
+1. **React 19 & TypeScript 5:** Permite renderizado declarativo ultrarrápido sin desbordamientos de memoria.
+2. **Tailwind CSS v4 & Glassmorphism:** Estilos JIT ultra-optimizados que reducen el peso de las hojas de estilos CSS a pocos kilobytes, implementando tarjetas de vidrio esmerilado con la propiedad nativa `backdrop-blur-md` e iluminación sutil mediante HSL dinámicos.
+3. **Cascada de Modelos en IA (Gemini Cascade Orchestration):**
+   El asistente implementa una lógica en cascada en caso de cuotas agotadas (`HTTP 429`) en servidores gratuitos, rotando automáticamente en milisegundos:
+   $$\text{gemini-2.5-flash} \longrightarrow \text{gemini-2.0-flash} \longrightarrow \text{gemini-1.5-flash} \longrightarrow \text{gemini-2.5-pro} \longrightarrow \text{gemini-1.5-pro}$$
+4. **Monitoreo y Control de Cuota de Gemini (Prevención de Abuso):**
+   La plataforma calcula de forma reactiva el número de llamadas del último minuto (RPM) y del último día (RPD) utilizando un historial persistido en la memoria del celular (`localStorage`), adaptando sus medidores en vivo y mostrando alertas amigables o deshabilitando temporalmente el chat si el usuario se acerca a los límites de consumo del plan gratuito de Google AI Studio.
+5. **Instalación como Aplicación Web Progresiva (PWA):**
+   Equipada con Service Workers vía `vite-plugin-pwa`. Permite el almacenamiento en caché local de todos los íconos, tipografías y lógica para que la aplicación funcione **100% offline** (sin conexión a internet), permitiendo registrar compras en sótanos de centros comerciales o supermercados sin señal y sincronizándose al recuperar conexión.
+
+---
+
+## 6. Despliegue, Ejecución y Desarrollo
+
+### Correr la aplicación localmente:
+1. Instala las dependencias necesarias:
    ```bash
    npm install
    ```
-2. Iniciar el servidor local de desarrollo abierto a la red local (esencial para probar en tu teléfono celular vía Wi-Fi):
+2. Inicia el servidor de desarrollo abierto para tu red local (indispensable para probarlo directamente en tu teléfono celular compartiendo la misma red Wi-Fi):
    ```bash
-   npm run dev -- --host
+   npm run dev
    ```
-3. Copiar la dirección de red local generada (ej: `http://192.168.1.15:3000`) e ingresarla en el navegador Safari o Google Chrome de tu teléfono inteligente para instalarla como una PWA nativa en tu pantalla de inicio mediante la opción **"Añadir a la pantalla de inicio"**.
+3. La consola te arrojará dos enlaces:
+   * **Local:** `http://localhost:3000/` (Para probar en la computadora).
+   * **Network (Red Local):** `http://192.168.X.X:3000/` (Copia esta dirección física en el navegador Google Chrome o Safari de tu teléfono celular).
+4. **Instalación Móvil PWA:** En tu celular, abre el menú de opciones del navegador y presiona **"Añadir a la pantalla de inicio"** (Android) o presiona el botón de compartir y selecciona **"Añadir a pantalla de inicio"** (iOS/iPhone). La aplicación se instalará como una aplicación nativa premium con icono propio en tu escritorio de SpendWise Pro.

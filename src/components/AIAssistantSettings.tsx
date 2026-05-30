@@ -19,11 +19,11 @@ interface AIAssistantSettingsProps {
 }
 
 export const GEMINI_MODELS = [
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Recomendado)', description: 'Último modelo, súper rápido y multimodal' },
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Rápido, excelente para tareas generales' },
-  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Ligero y balanceado, ideal para OCR' },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Razonamiento complejo (más lento)' },
-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Alta capacidad analítica y de contexto' }
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Recomendado)', description: 'Último modelo, ultra veloz y cuota gratuita amplia (15 resp/min, 1,500/día)' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Veloz, excelente para tareas generales (15 resp/min, 1,500/día)' },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Ligero y balanceado, ideal para escanear tickets (15 resp/min, 1,500/día)' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Razonamiento complejo, cuota gratuita muy limitada (2 resp/min, 50/día)' },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Alta capacidad analítica, cuota gratuita muy limitada (2 resp/min, 50/día)' }
 ];
 
 export default function AIAssistantSettings({
@@ -217,8 +217,11 @@ export default function AIAssistantSettings({
       </div>
 
       {/* Test Connection Button */}
-      <div className="border-t border-slate-50 pt-3 space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="border-t border-slate-50 pt-3 space-y-2">
+        <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">
+          💡 <strong>¿Qué es esta prueba y cuándo usarla?</strong> Sirve para verificar si la clave que pegaste es correcta y si tu internet puede comunicarse con el cerebro de Google. Úsalo justo después de pegar tu clave por primera vez, o si notas que el asistente no responde, para confirmar que todo funciona bien.
+        </p>
+        <div className="flex items-center justify-between pt-1">
           <button
             onClick={handleTestConnection}
             disabled={testStatus === 'testing'}
