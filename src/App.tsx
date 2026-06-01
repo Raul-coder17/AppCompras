@@ -509,7 +509,15 @@ export default function App() {
       .filter(i => i.paymentMethod === 'tarjeta' || i.paymentMethod === 'transferencia')
       .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
-    const spentServices = servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
+    const spentServicesCash = servicePayments
+      .filter(s => s.paymentMethod === 'efectivo')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+
+    const spentServicesCard = servicePayments
+      .filter(s => s.paymentMethod !== 'efectivo')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+
+    const spentServices = spentServicesCash + spentServicesCard;
     
     const totalIncomesCash = incomes
       .filter(i => i.paymentMethod === 'efectivo')
@@ -519,8 +527,8 @@ export default function App() {
       .filter(i => i.paymentMethod === 'tarjeta')
       .reduce((acc, curr) => acc + curr.amount, 0);
 
-    const remainingCashVal = Math.max(0, cashBudget + totalIncomesCash - spentCash);
-    const remainingCardVal = Math.max(0, cardBudget + totalIncomesCard - spentCard - spentServices);
+    const remainingCashVal = Math.max(0, cashBudget - spentCash - spentServicesCash);
+    const remainingCardVal = Math.max(0, cardBudget - spentCard - spentServicesCard);
 
     const [year, month] = currentMonth.split('-');
 

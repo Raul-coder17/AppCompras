@@ -347,49 +347,110 @@ export default function BudgetCard({
       )}
 
       {/* Header section with interactive Available Capital input */}
-      <div className="p-6 md:p-8 bg-slate-50/50 border-b border-slate-100">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <Wallet className="w-4.5 h-4.5 text-slate-500" />
-              Capital Real Acumulado
-            </p>
-            <div className="flex items-center gap-2.5 mt-2 group" id="display-budget">
-              <h2 className="text-3.5xl md:text-4.5xl font-black text-slate-900 tracking-tight leading-none">
+      <div className="p-6 md:p-8 bg-gradient-to-b from-slate-50/70 to-slate-100/30 border-b border-slate-150/70">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+          
+          {/* Capital accumulation display */}
+          <div className="space-y-2.5">
+            <div className="flex items-center gap-2 text-slate-500">
+              <div className="p-1.5 bg-slate-100 rounded-lg text-slate-650 border border-slate-200/50 shadow-2xs">
+                <Wallet className="w-4 h-4 animate-bounce" />
+              </div>
+              <span className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500">
+                Capital Neto Acumulado
+              </span>
+            </div>
+            
+            <div className="flex items-baseline gap-2 mt-1">
+              <h2 className="text-3.5xl sm:text-4xl lg:text-4.5xl font-black tracking-tight text-slate-900 leading-none">
                 ${realTotalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h2>
+              <span className="text-xs text-slate-400 font-semibold">(MXN)</span>
             </div>
-            {totalApartados > 0 && (
-              <p className="text-[10px] sm:text-xs text-slate-500 font-extrabold mt-2 bg-slate-100/60 border border-slate-200/50 px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5 animate-in fade-in duration-200">
-                <span className="text-emerald-600">Disponible: ${totalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
-                <span className="text-slate-350">|</span>
-                <span className="text-slate-500">Reservado: ${totalApartados.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
-              </p>
+
+            <p className="text-[10.5px] text-slate-400 font-medium leading-relaxed max-w-sm sm:max-w-md">
+              Suma total de tu patrimonio en curso, combinando tu capital disponible y los ahorros protegidos en tus apartados.
+            </p>
+
+            {totalApartados > 0 ? (
+              <div className="flex items-center gap-2 mt-3 bg-white border border-slate-200/60 p-2 rounded-2xl shadow-2xs w-fit animate-in fade-in duration-200">
+                <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 rounded-xl border border-emerald-100/50 text-[10px] sm:text-xs font-extrabold text-emerald-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                  <span>Libre: ${totalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <span className="text-slate-300 font-light text-xs">|</span>
+                <div className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 rounded-xl border border-indigo-100/50 text-[10px] sm:text-xs font-extrabold text-indigo-700">
+                  <span>🔒 Apartado: ${totalApartados.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 rounded-xl border border-emerald-100/50 text-[10px] sm:text-xs font-extrabold text-emerald-750">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>Todo el capital está libre y disponible</span>
+              </div>
             )}
           </div>
 
-          <div className="flex flex-col items-end text-right md:w-auto w-full gap-2">
-            <span className={`text-xs font-black px-3.5 py-1.5 rounded-full uppercase tracking-wider shadow-xs ${
-              remaining < 0 
-                ? 'bg-rose-50 text-rose-700 border border-rose-200' 
-                : remaining === 0 
-                ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-            }`}>
-              {remaining < 0 ? 'Límite Excedido' : 'Capital Sano'}
-            </span>
-            <button
-              onClick={onOpenCloseWizard}
-              className="mt-1 px-4 py-2 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 hover:from-emerald-950 hover:to-slate-900 border border-slate-700/50 hover:border-emerald-500/30 text-emerald-400 hover:text-emerald-300 rounded-xl text-xs font-extrabold shadow-sm active:scale-97 cursor-pointer transition-all duration-200 flex items-center gap-1.5"
-            >
-              💰 Cerrar Mes Actual
-            </button>
-            <p className="text-xs text-slate-500 font-semibold mt-2.5">
-              {percentTotal}% del presupuesto comprometido
-            </p>
-          </div>
-        </div>
+          {/* Right Metrics Panel */}
+          <div className="flex flex-col sm:flex-row lg:flex-col items-start sm:items-center lg:items-end gap-4.5 w-full lg:w-auto shrink-0 bg-white/60 backdrop-blur-xs border border-slate-200/55 p-5 rounded-3xl shadow-sm">
+            
+            {/* Status chip */}
+            <div className="flex flex-col lg:items-end gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Estado del Capital</span>
+              <div className="mt-1">
+                {remaining < 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm shadow-rose-100 border border-rose-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    🚨 Límite Excedido
+                  </span>
+                ) : remaining === 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm shadow-amber-100 border border-amber-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    ⚠️ Capital al Límite
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm shadow-emerald-100 border border-emerald-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    🍀 Capital Sano
+                  </span>
+                )}
+              </div>
+            </div>
 
+            <div className="hidden sm:block lg:hidden w-px h-10 bg-slate-200"></div>
+
+            {/* Commited Budget block */}
+            <div className="flex flex-col lg:items-end gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Compromiso Financiero</span>
+              <div className="flex items-center gap-1 mt-1">
+                <span className={`text-sm sm:text-base font-black ${
+                  percentTotal >= 100 ? 'text-rose-600' : percentTotal >= 80 ? 'text-amber-600' : 'text-slate-800'
+                }`}>
+                  {percentTotal}%
+                </span>
+                <span className="text-[11px] text-slate-400 font-semibold ml-1">presupuesto comprometido</span>
+              </div>
+              <p className="text-[9px] text-slate-450 font-bold leading-none mt-0.5">
+                ${totalAllocated.toLocaleString('es-ES', { maximumFractionDigits: 0 })} asignado de ${totalBudget.toLocaleString('es-ES', { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+
+            <div className="hidden sm:block lg:hidden w-px h-10 bg-slate-200"></div>
+
+            {/* Action button */}
+            <div className="flex flex-col lg:items-end w-full sm:w-auto">
+              <button
+                onClick={onOpenCloseWizard}
+                className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 hover:from-emerald-950 hover:to-slate-900 border border-slate-700/50 hover:border-emerald-500/30 text-emerald-400 hover:text-emerald-300 rounded-xl text-xs font-extrabold shadow-sm active:scale-97 cursor-pointer transition-all duration-200 flex items-center justify-center gap-1.5"
+              >
+                💰 Cerrar Mes Actual
+              </button>
+            </div>
+
+          </div>
+
+        </div>
+      
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-6">
           <div className="bg-white/70 border border-slate-200/60 rounded-2xl p-5 shadow-xs">
             <div className="flex items-center justify-between">

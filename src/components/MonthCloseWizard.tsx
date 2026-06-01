@@ -48,9 +48,16 @@ export default function MonthCloseWizard({
     .filter(i => i.paymentMethod === 'tarjeta' || i.paymentMethod === 'transferencia')
     .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
-  const spentServices = servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
+  const spentServicesCash = servicePayments
+    .filter(s => s.paymentMethod === 'efectivo')
+    .reduce((acc, curr) => acc + curr.amount, 0);
+
+  const spentServicesCard = servicePayments
+    .filter(s => s.paymentMethod !== 'efectivo')
+    .reduce((acc, curr) => acc + curr.amount, 0);
+
+  const spentServices = spentServicesCash + spentServicesCard;
   
-  // Note: Services currently count against the card budget by default unless specified
   const totalIncomesCash = incomes
     .filter(i => i.paymentMethod === 'efectivo')
     .reduce((acc, curr) => acc + curr.amount, 0);
@@ -59,10 +66,10 @@ export default function MonthCloseWizard({
     .filter(i => i.paymentMethod === 'tarjeta')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
-  // Final remaining balances (starting budget + incomes - spent)
-  const remainingCash = Math.max(0, cashBudget + totalIncomesCash - spentCash);
-  // Service payments are paid from card
-  const remainingCard = Math.max(0, cardBudget + totalIncomesCard - spentCard - spentServices);
+  // Final remaining balances (starting budget - spent. Incomes are already integrated in cashBudget/cardBudget)
+  const remainingCash = Math.max(0, cashBudget - spentCash - spentServicesCash);
+  // Service payments are paid from card or cash depending on paymentMethod
+  const remainingCard = Math.max(0, cardBudget - spentCard - spentServicesCard);
 
   // Pre-fill budgets in step 2
   useEffect(() => {
@@ -193,7 +200,7 @@ export default function MonthCloseWizard({
                     ${remainingCash.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                   </span>
                   <div className="text-[8px] text-slate-400 font-semibold mt-1">
-                    Inicial: ${cashBudget} • Ingresos: +${totalIncomesCash}
+                    Inicial: ${(Math.max(0, cashBudget - totalIncomesCash)).toLocaleString('es-MX', { minimumFractionDigits: 2 })} • Ingresos: +${totalIncomesCash}
                   </div>
                 </div>
 
@@ -205,7 +212,7 @@ export default function MonthCloseWizard({
                     ${remainingCard.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                   </span>
                   <div className="text-[8px] text-slate-400 font-semibold mt-1">
-                    Inicial: ${cardBudget} • Ingresos: +${totalIncomesCard}
+                    Inicial: ${(Math.max(0, cardBudget - totalIncomesCard)).toLocaleString('es-MX', { minimumFractionDigits: 2 })} • Ingresos: +${totalIncomesCard}
                   </div>
                 </div>
               </div>
