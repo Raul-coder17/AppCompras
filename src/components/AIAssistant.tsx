@@ -78,6 +78,10 @@ interface AIAssistantProps {
 
   // Apartados addition
   apartados?: Apartado[];
+  onAddApartado?: (name: string, amount: number, paymentMethod: 'efectivo' | 'tarjeta') => void;
+  onDepositToApartado?: (id: string, amount: number) => void;
+  onWithdrawFromApartado?: (id: string, amount: number) => void;
+  onDeleteApartado?: (id: string) => void;
 }
 
 // Premium Error Translation Parser for Gemini API
@@ -526,6 +530,14 @@ export default function AIAssistant({
     ];
     const currMonthName = currM ? `${monthNames[parseInt(currM) - 1]} ${currY}` : '';
 
+    // Calculate real spending to get actual remaining free budget
+    const cashSpentItems = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
+    const cardSpentItems = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
+    const cashSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod === 'efectivo' ? curr.amount : 0), 0);
+    const cardSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod !== 'efectivo' ? curr.amount : 0), 0);
+    const cashSpent = cashSpentItems + cashSpentServices;
+    const cardSpent = cardSpentItems + cardSpentServices;
+
     // Build current state payload for the system instructions
     const systemInstruction = `
 Eres un asistente financiero experto dentro de la aplicación 'SpendWise Pro'.
@@ -541,11 +553,15 @@ Estado actual de la aplicación:
 - Ingresos de este mes (Income): ${JSON.stringify(incomes)}
 - Apartados de ahorro/resguardados activos (Apartado): ${JSON.stringify(apartados.map(a => ({ id: a.id, name: a.name, amount: a.amount, paymentMethod: a.paymentMethod })))}
 - Historial financiero de meses cerrados (MonthlyHistoryRecord): ${JSON.stringify(monthlyHistory.map(m => ({ monthId: m.monthId, summary: m.summary })))}
-- Presupuesto en efectivo libre disponible: $${cashBudget}
-- Presupuesto en tarjeta/transferencia libre disponible: $${cardBudget}
+- Presupuesto en efectivo inicial (antes de gastos): $${cashBudget}
+- Presupuesto en tarjeta/transferencia inicial (antes de gastos): $${cardBudget}
+- Presupuesto en efectivo libre disponible actual (ya descontando lo comprado y pagado): $${cashBudget - cashSpent}
+- Presupuesto en tarjeta/transferencia libre disponible actual (ya descontando lo comprado y pagado): $${cardBudget - cardSpent}
+- Total de capital libre disponible actual: $${(cashBudget - cashSpent) + (cardBudget - cardSpent)}
 - Categorías de compras disponibles: ${JSON.stringify(categories.map(c => ({ id: c.id, name: c.name })))}
 - Lugares de compra frecuentes: ${JSON.stringify(places)}
 - Servicios frecuentes: ${JSON.stringify(serviceOptions)}
+
 
 Reglas importantes:
 1. DISTINGUE CONSULTAS vs ACCIONES DE REGISTRO:
@@ -574,6 +590,7 @@ Reglas importantes:
     - Si el usuario menciona varios artículos CON precios individuales (ej: "Compré leche $30, pan $20 y huevos $50"), usa 'add_multiple_items_proposed' con el precio de cada artículo en su campo 'price' y NO envíes 'totalPrice'.
     - Si el usuario menciona artículos sin ningún precio, no envíes 'totalPrice' ni precios individuales (dejar en 0).
 11. REGISTRO DE INGRESOS: Si el usuario menciona haber recibido dinero (por ejemplo: 'Me pagaron mi nómina de $10,000 en tarjeta', 'Registra un ingreso de $500 en efectivo por un regalo' o 'Me llegó una lana extra de $1200'), debes proponer la tarjeta de confirmación correspondiente llamando a 'add_income_proposed' inmediatamente. Si no especifica el método de pago (efectivo o tarjeta), invoca la herramienta sin enviarlo (o déjalo vacío) para que el usuario elija su destino interactivamente.
+12. APARTADOS DE AHORRO (RESERVAS): Si el usuario solicita resguardar o separar dinero (por ejemplo: 'Quiero guardar $1000 en efectivo para la Renta', 'Crea un apartado de ahorro llamado Viaje con $500 en tarjeta' o 'Sepárame $200 de mi presupuesto'), debes proponer la tarjeta correspondiente llamando a 'add_apartado_proposed'. Si desea depositar o meter más dinero en un apartado existente, llama a 'deposit_to_apartado_proposed'. Si desea retirar o sacar dinero de un apartado existente, llama a 'withdraw_from_apartado_proposed'. Si desea eliminar/borrar un apartado existente por completo, llama a 'delete_apartado_proposed'.
 `;
 
     // Tools definition
@@ -800,6 +817,54 @@ Reglas importantes:
             parameters: {
               type: 'OBJECT',
               properties: {}
+            }
+          },
+          {
+            name: 'add_apartado_proposed',
+            description: 'Propone crear un nuevo apartado de ahorro o reserva de dinero (ej: Apartado para Renta, Ahorro para Viaje). Requiere confirmación.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING', description: 'Nombre o concepto del apartado de ahorro (ej: Renta, Viaje, Fondo de Emergencia)' },
+                amount: { type: 'NUMBER', description: 'Monto a resguardar inicialmente en el apartado' },
+                paymentMethod: { type: 'STRING', description: 'Origen del presupuesto del apartado. Debe ser "efectivo" o "tarjeta". Si no se puede inferir del mensaje, dejar vacío para elegir en la UI.' }
+              },
+              required: ['name', 'amount']
+            }
+          },
+          {
+            name: 'deposit_to_apartado_proposed',
+            description: 'Propone depositar o agregar más dinero a un apartado de ahorro existente. Requiere confirmación.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING', description: 'Nombre o concepto del apartado existente al que se depositará' },
+                amount: { type: 'NUMBER', description: 'Monto de dinero a depositar en el apartado' }
+              },
+              required: ['name', 'amount']
+            }
+          },
+          {
+            name: 'withdraw_from_apartado_proposed',
+            description: 'Propone retirar dinero de un apartado de ahorro existente y regresarlo al presupuesto libre. Requiere confirmación.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING', description: 'Nombre o concepto del apartado existente del que se retirará' },
+                amount: { type: 'NUMBER', description: 'Monto de dinero a retirar del apartado' }
+              },
+              required: ['name', 'amount']
+            }
+          },
+          {
+            name: 'delete_apartado_proposed',
+            description: 'Propone eliminar permanentemente un apartado de ahorro y devolver todo su saldo al presupuesto libre disponible. Requiere confirmación.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING', description: 'Nombre o concepto del apartado a eliminar' }
+              },
+              required: ['name']
             }
           }
         ]
@@ -1217,6 +1282,36 @@ Reglas importantes:
     return `No encontré ningún ingreso registrado que coincida con '${args.name}'.`;
   };
 
+  const executeDepositToApartado = (args: { name: string; amount: number }) => {
+    if (!apartados || !onDepositToApartado) return 'La función de depositar a apartados no está disponible.';
+    const target = apartados.find(a => a.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (target) {
+      onDepositToApartado(target.id, args.amount);
+      return `Se depositaron $${args.amount} en el apartado de ahorro '${target.name}'.`;
+    }
+    return `No encontré ningún apartado de ahorro que coincida con '${args.name}'.`;
+  };
+
+  const executeWithdrawFromApartado = (args: { name: string; amount: number }) => {
+    if (!apartados || !onWithdrawFromApartado) return 'La función de retirar de apartados no está disponible.';
+    const target = apartados.find(a => a.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (target) {
+      onWithdrawFromApartado(target.id, args.amount);
+      return `Se retiraron $${args.amount} del apartado de ahorro '${target.name}'.`;
+    }
+    return `No encontré ningún apartado de ahorro que coincida con '${args.name}'.`;
+  };
+
+  const executeDeleteApartado = (args: { name: string }) => {
+    if (!apartados || !onDeleteApartado) return 'La función de eliminar apartados no está disponible.';
+    const target = apartados.find(a => a.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (target) {
+      onDeleteApartado(target.id);
+      return `Se eliminó el apartado de ahorro '${target.name}' y sus fondos se regresaron al presupuesto libre.`;
+    }
+    return `No encontré ningún apartado de ahorro que coincida con '${args.name}'.`;
+  };
+
   // Human-in-the-loop: Confirm or Reject Card Actions
   const handleConfirmTool = (messageId: string, customArgs: any) => {
     const message = messages.find(m => m.id === messageId);
@@ -1336,6 +1431,26 @@ Reglas importantes:
       }
       else if (toolName === 'reset_database_proposed') {
         feedbackText = executeResetDatabase();
+      }
+      else if (toolName === 'add_apartado_proposed') {
+        const apartadoData = {
+          name: finalArgs.name,
+          amount: Number(finalArgs.amount) || 0,
+          paymentMethod: finalArgs.paymentMethod as 'efectivo' | 'tarjeta'
+        };
+        if (onAddApartado) {
+          onAddApartado(apartadoData.name, apartadoData.amount, apartadoData.paymentMethod);
+        }
+        feedbackText = `¡Apartado creado! Se reservaron $${apartadoData.amount.toFixed(2)} bajo el concepto '${apartadoData.name}' desde tu presupuesto de ${apartadoData.paymentMethod}.`;
+      }
+      else if (toolName === 'deposit_to_apartado_proposed') {
+        feedbackText = executeDepositToApartado(finalArgs);
+      }
+      else if (toolName === 'withdraw_from_apartado_proposed') {
+        feedbackText = executeWithdrawFromApartado(finalArgs);
+      }
+      else if (toolName === 'delete_apartado_proposed') {
+        feedbackText = executeDeleteApartado(finalArgs);
       }
 
       // Mark tool as approved and update message feedback
@@ -1589,6 +1704,7 @@ Reglas importantes:
                             onReject={handleRejectTool}
                             categories={categories}
                             items={items}
+                            apartados={apartados}
                           />
                         </div>
                       )}
@@ -1790,6 +1906,7 @@ interface ConfirmationCardProps {
   initialArgs: any;
   categories: Category[];
   items: ShoppingItem[];
+  apartados?: Apartado[];
   onConfirm: (messageId: string, customArgs: any) => void;
   onReject: (messageId: string) => void;
 }
@@ -1800,6 +1917,7 @@ function ConfirmationCard({
   initialArgs,
   categories,
   items,
+  apartados = [],
   onConfirm,
   onReject
 }: ConfirmationCardProps) {
@@ -1849,6 +1967,18 @@ function ConfirmationCard({
       if (!args.name) args.name = 'Ingreso';
       if (args.amount === undefined) args.amount = 0;
       if (!args.paymentMethod) args.paymentMethod = ''; // let user choose
+    }
+    else if (toolName === 'add_apartado_proposed') {
+      if (!args.name) args.name = 'Apartado';
+      if (args.amount === undefined) args.amount = 0;
+      if (!args.paymentMethod) args.paymentMethod = ''; // let user choose
+    }
+    else if (toolName === 'deposit_to_apartado_proposed' || toolName === 'withdraw_from_apartado_proposed') {
+      if (!args.name) args.name = '';
+      if (args.amount === undefined) args.amount = 0;
+    }
+    else if (toolName === 'delete_apartado_proposed') {
+      if (!args.name) args.name = '';
     }
     else if (toolName === 'update_item_proposed') {
       const existing = items.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
@@ -1909,6 +2039,13 @@ function ConfirmationCard({
       onConfirm(messageId, editedArgs);
     }
     else if (toolName === 'add_income_proposed') {
+      if (!editedArgs.paymentMethod) {
+        setPaymentMethodMissing(true);
+        return;
+      }
+      onConfirm(messageId, editedArgs);
+    }
+    else if (toolName === 'add_apartado_proposed') {
       if (!editedArgs.paymentMethod) {
         setPaymentMethodMissing(true);
         return;
@@ -2739,6 +2876,287 @@ function ConfirmationCard({
             className="flex-grow py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs"
           >
             Registrar Ingreso
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3.6 ADD APARTADO CARD PROPOSED BY AI
+  if (toolName === 'add_apartado_proposed') {
+    const handleFieldChange = (field: string, value: any) => {
+      setEditedArgs((prev: any) => ({
+        ...prev,
+        [field]: value
+      }));
+      if (field === 'paymentMethod' && value) {
+        setPaymentMethodMissing(false);
+      }
+    };
+
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4 max-w-[95%] mx-auto animate-in zoom-in duration-200">
+        <div className="flex items-center gap-2 border-b border-slate-50 pb-2">
+          <Coins className="w-4 h-4 text-indigo-500" />
+          <span className="font-bold text-xs text-slate-800">Confirmar Creación de Apartado</span>
+        </div>
+
+        <div className="space-y-3">
+          {/* Apartado Name */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nombre / Concepto del Apartado</label>
+            <input
+              type="text"
+              value={editedArgs.name || ''}
+              onChange={(e) => handleFieldChange('name', e.target.value)}
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {/* Amount */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Monto inicial ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={editedArgs.amount || 0}
+                onChange={(e) => handleFieldChange('amount', parseFloat(e.target.value) || 0)}
+                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-850 focus:outline-none font-bold"
+              />
+            </div>
+            {/* Payment Method / Origen */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Origen de Fondos</label>
+              <select
+                value={editedArgs.paymentMethod || ''}
+                onChange={(e) => handleFieldChange('paymentMethod', e.target.value)}
+                className={`w-full px-2 py-1.5 bg-slate-50 border rounded-lg text-xs text-slate-800 focus:outline-none cursor-pointer ${paymentMethodMissing && !editedArgs.paymentMethod
+                    ? 'border-rose-500 bg-rose-50 ring-1 ring-rose-200'
+                    : 'border-slate-200'
+                  }`}
+              >
+                <option value="">-- Elige --</option>
+                <option value="efectivo">💵 Efectivo</option>
+                <option value="tarjeta">💳 Tarjeta</option>
+              </select>
+            </div>
+          </div>
+
+          {paymentMethodMissing && !editedArgs.paymentMethod && (
+            <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Por favor selecciona el origen de fondos para este apartado.
+            </p>
+          )}
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2 pt-2 border-t border-slate-50">
+          <button
+            onClick={() => onReject(messageId)}
+            className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
+          >
+            Rechazar
+          </button>
+          <button
+            onClick={handleValidateConfirm}
+            className="flex-grow py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs"
+          >
+            Crear Apartado
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3.7 DEPOSIT TO APARTADO CARD
+  if (toolName === 'deposit_to_apartado_proposed') {
+    const handleFieldChange = (field: string, value: any) => {
+      setEditedArgs((prev: any) => ({
+        ...prev,
+        [field]: value
+      }));
+    };
+
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4 max-w-[95%] mx-auto animate-in zoom-in duration-200">
+        <div className="flex items-center gap-2 border-b border-slate-50 pb-2">
+          <Coins className="w-4 h-4 text-emerald-500" />
+          <span className="font-bold text-xs text-slate-800">Confirmar Depósito a Apartado</span>
+        </div>
+
+        <div className="space-y-3">
+          {/* Select Apartado */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Apartado Destino</label>
+            <select
+              value={editedArgs.name || ''}
+              onChange={(e) => handleFieldChange('name', e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="">-- Selecciona --</option>
+              {apartados.map(a => (
+                <option key={a.id} value={a.name}>
+                  {a.name} (${a.amount.toFixed(2)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Amount */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Monto a Depositar ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={editedArgs.amount || 0}
+              onChange={(e) => handleFieldChange('amount', parseFloat(e.target.value) || 0)}
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-850 focus:outline-none font-bold"
+            />
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2 pt-2 border-t border-slate-50">
+          <button
+            onClick={() => onReject(messageId)}
+            className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
+          >
+            Rechazar
+          </button>
+          <button
+            onClick={handleValidateConfirm}
+            disabled={!editedArgs.name || editedArgs.amount <= 0}
+            className="flex-grow py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Depositar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3.8 WITHDRAW FROM APARTADO CARD
+  if (toolName === 'withdraw_from_apartado_proposed') {
+    const handleFieldChange = (field: string, value: any) => {
+      setEditedArgs((prev: any) => ({
+        ...prev,
+        [field]: value
+      }));
+    };
+
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4 max-w-[95%] mx-auto animate-in zoom-in duration-200">
+        <div className="flex items-center gap-2 border-b border-slate-50 pb-2">
+          <Coins className="w-4 h-4 text-amber-500" />
+          <span className="font-bold text-xs text-slate-800">Confirmar Retiro de Apartado</span>
+        </div>
+
+        <div className="space-y-3">
+          {/* Select Apartado */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Apartado de Origen</label>
+            <select
+              value={editedArgs.name || ''}
+              onChange={(e) => handleFieldChange('name', e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="">-- Selecciona --</option>
+              {apartados.map(a => (
+                <option key={a.id} value={a.name}>
+                  {a.name} (${a.amount.toFixed(2)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Amount */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Monto a Retirar ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={editedArgs.amount || 0}
+              onChange={(e) => handleFieldChange('amount', parseFloat(e.target.value) || 0)}
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-850 focus:outline-none font-bold"
+            />
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2 pt-2 border-t border-slate-50">
+          <button
+            onClick={() => onReject(messageId)}
+            className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-655 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
+          >
+            Rechazar
+          </button>
+          <button
+            onClick={handleValidateConfirm}
+            disabled={!editedArgs.name || editedArgs.amount <= 0}
+            className="flex-grow py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Retirar Fondos
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3.9 DELETE APARTADO CARD
+  if (toolName === 'delete_apartado_proposed') {
+    const handleFieldChange = (field: string, value: any) => {
+      setEditedArgs((prev: any) => ({
+        ...prev,
+        [field]: value
+      }));
+    };
+
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4 max-w-[95%] mx-auto animate-in zoom-in duration-200">
+        <div className="flex items-center gap-2 border-b border-slate-50 pb-2">
+          <Trash2 className="w-4 h-4 text-rose-500" />
+          <span className="font-bold text-xs text-rose-700">¿Eliminar Apartado de Ahorro?</span>
+        </div>
+
+        <div className="space-y-3">
+          <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+            Se eliminará por completo el apartado de ahorro y <strong>todos sus fondos resguardados se regresarán a tu saldo libre disponible</strong>.
+          </p>
+
+          {/* Select Apartado */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Apartado a Eliminar</label>
+            <select
+              value={editedArgs.name || ''}
+              onChange={(e) => handleFieldChange('name', e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="">-- Selecciona --</option>
+              {apartados.map(a => (
+                <option key={a.id} value={a.name}>
+                  {a.name} (${a.amount.toFixed(2)})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2 pt-2 border-t border-slate-50">
+          <button
+            onClick={() => onReject(messageId)}
+            className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleValidateConfirm}
+            disabled={!editedArgs.name}
+            className="flex-grow py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Eliminar Apartado
           </button>
         </div>
       </div>

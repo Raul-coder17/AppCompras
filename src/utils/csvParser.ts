@@ -105,14 +105,17 @@ export function parseMPNumber(valStr: string): number {
 function parseMPDate(dateStr: string): string {
   if (!dateStr) return new Date().toISOString();
   
-  // Reemplazar diagonales por guiones para homogeneizar
   const cleanDate = dateStr.trim();
-  const parsed = Date.parse(cleanDate);
-  if (!isNaN(parsed)) {
-    return new Date(parsed).toISOString();
+  
+  // Si tiene formato YYYY-MM-DD o similar al inicio, usar Date.parse nativo
+  if (/^\d{4}[-/]\d{2}[-/]\d{2}/.test(cleanDate)) {
+    const parsed = Date.parse(cleanDate);
+    if (!isNaN(parsed)) {
+      return new Date(parsed).toISOString();
+    }
   }
-
-  // Si falla el parser nativo, intentar parsear DD-MM-YYYY HH:mm:ss o DD/MM/YYYY
+  
+  // Intentar parsear explícitamente DD/MM/YYYY o DD-MM-YYYY primero (formato estándar de Mercado Pago en LATAM)
   const parts = cleanDate.split(/[\sT]+/);
   const dateParts = parts[0].split(/[-/]/);
   if (dateParts.length === 3) {
@@ -143,6 +146,12 @@ function parseMPDate(dateStr: string): string {
     if (!isNaN(manualDate.getTime())) {
       return manualDate.toISOString();
     }
+  }
+
+  // Fallback final a Date.parse nativo
+  const parsed = Date.parse(cleanDate);
+  if (!isNaN(parsed)) {
+    return new Date(parsed).toISOString();
   }
 
   return new Date().toISOString();

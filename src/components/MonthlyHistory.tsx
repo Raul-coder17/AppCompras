@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { Calendar, ChevronDown, ChevronUp, Coins, ShoppingBag, CreditCard, Clock, Activity, TrendingUp, Sparkles } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronUp, Coins, ShoppingBag, CreditCard, Clock, Activity, TrendingUp, Sparkles, Trash2 } from 'lucide-react';
 import { MonthlyHistoryRecord } from '../types';
 
 interface MonthlyHistoryProps {
   history: MonthlyHistoryRecord[];
+  onDeleteMonth: (monthId: string) => void;
 }
 
-export default function MonthlyHistory({ history }: MonthlyHistoryProps) {
+export default function MonthlyHistory({ history, onDeleteMonth }: MonthlyHistoryProps) {
   const [expandedMonthId, setExpandedMonthId] = useState<string | null>(null);
 
   const toggleExpand = (monthId: string) => {
@@ -103,8 +104,18 @@ export default function MonthlyHistory({ history }: MonthlyHistoryProps) {
                   </div>
                 </div>
 
-                {/* Expand icon */}
-                <div className="flex items-center justify-end shrink-0">
+                {/* Action buttons (Delete & Expand) */}
+                <div className="flex items-center justify-end shrink-0 gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation(); // Evitar expandir/colapsar al dar clic en borrar
+                      onDeleteMonth(summary.monthId);
+                    }}
+                    className="p-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition cursor-pointer active:scale-90"
+                    title="Eliminar este mes del historial"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                   <div className={`p-1.5 rounded-lg border transition ${
                     isExpanded 
                       ? 'bg-emerald-50 border-emerald-250 text-emerald-600' 

@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  ShoppingBag, 
-  RotateCcw, 
-  Download, 
-  FileText, 
-  User, 
+import {
+  ShoppingBag,
+  RotateCcw,
+  Download,
+  FileText,
+  User,
   Heart,
   ExternalLink,
   Calendar,
@@ -150,6 +150,8 @@ export default function App() {
     inferredCategory: string;
     inferredService?: string;
     isDuplicate: boolean;
+    isFuzzyDuplicate?: boolean;
+    fuzzyMatchDetails?: string;
     excluded?: boolean;
   }
   const [importPreview, setImportPreview] = useState<PreviewItem[] | null>(null);
@@ -406,7 +408,7 @@ export default function App() {
     if (!currentMonth) return '';
     const [year, month] = currentMonth.split('-');
     const monthNames = [
-      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
       'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
     ];
     return `${monthNames[parseInt(month) - 1]} ${year}`;
@@ -540,7 +542,7 @@ export default function App() {
       .reduce((acc, curr) => acc + curr.amount, 0);
 
     const spentServices = spentServicesCash + spentServicesCard;
-    
+
     const totalIncomesCash = incomes
       .filter(i => i.paymentMethod === 'efectivo')
       .reduce((acc, curr) => acc + curr.amount, 0);
@@ -583,7 +585,7 @@ export default function App() {
     // Setup next month active settings
     const nextMonthDate = new Date(parseInt(year), parseInt(month), 1);
     const nextMonthStr = nextMonthDate.getFullYear() + '-' + String(nextMonthDate.getMonth() + 1).padStart(2, '0');
-    
+
     setCurrentMonth(nextMonthStr);
     setCashBudget(newCashBudget);
     setCardBudget(newCardBudget);
@@ -625,7 +627,7 @@ export default function App() {
           alert("No se encontraron transacciones válidas en el archivo.");
           return;
         }
-        
+
         // Gather all existing external IDs for deduplication
         const existingIds = new Set<string>();
         items.forEach(i => i.externalId && existingIds.add(i.externalId));
@@ -637,12 +639,67 @@ export default function App() {
           h.incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
         });
 
+        // Build fuzzy match index from ALL existing manual entries (items without externalId)
+        // Each entry: { name, amount, dateStr (YYYY-MM-DD), source }
+        const fuzzyIndex: { name: string; amount: number; dateStr: string; source: string }[] = [];
+        const toDateStr = (iso: string) => iso.slice(0, 10);
+        const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').trim();
+
+        items.forEach(i => {
+          fuzzyIndex.push({ name: normalize(i.name), amount: i.price * i.quantity, dateStr: toDateStr(i.createdAt), source: `Compra: ${i.name} ($${(i.price * i.quantity).toFixed(2)})` });
+        });
+        servicePayments.forEach(s => {
+          fuzzyIndex.push({ name: normalize(s.service), amount: s.amount, dateStr: toDateStr(s.createdAt), source: `Servicio: ${s.service} ($${s.amount.toFixed(2)})` });
+        });
+        incomes.forEach(inc => {
+          fuzzyIndex.push({ name: normalize(inc.name), amount: inc.amount, dateStr: toDateStr(inc.createdAt), source: `Ingreso: ${inc.name} ($${inc.amount.toFixed(2)})` });
+        });
+
+        // Fuzzy match helper: same day + same amount (±2%) + name has at least one common word (3+ chars)
+        const fuzzyMatch = (csvName: string, csvAmount: number, csvDate: string): string | null => {
+          const csvDateStr = toDateStr(csvDate);
+          const csvNorm = normalize(csvName);
+          const csvWords = csvNorm.split(/\s+/).filter(w => w.length >= 3);
+          const absAmount = Math.abs(csvAmount);
+
+          for (const entry of fuzzyIndex) {
+            // Same calendar day
+            if (entry.dateStr !== csvDateStr) continue;
+            // Amount within 2% tolerance
+            const amountDiff = Math.abs(entry.amount - absAmount);
+            if (amountDiff > absAmount * 0.02 && amountDiff > 0.01) continue;
+            // At least one meaningful word in common
+            const entryWords = entry.name.split(/\s+/).filter(w => w.length >= 3);
+            const hasCommonWord = csvWords.some(cw => entryWords.some(ew => ew.includes(cw) || cw.includes(ew)));
+            // If amounts match exactly and date matches, that's strong enough even without name match
+            if (hasCommonWord || amountDiff < 0.01) {
+              return entry.source;
+            }
+          }
+          return null;
+        };
+
         // Filter duplicates or mark them
-        const marked: PreviewItem[] = parsed.map(t => ({
-          ...t,
-          tempId: t.externalId || `temp-import-${Math.random().toString(36).substr(2, 9)}`,
-          isDuplicate: t.externalId ? existingIds.has(t.externalId) : false
-        }));
+        const marked: PreviewItem[] = parsed.map(t => {
+          const isExactDup = t.externalId ? existingIds.has(t.externalId) : false;
+          let isFuzzy = false;
+          let fuzzyDetails: string | undefined;
+          if (!isExactDup) {
+            const match = fuzzyMatch(t.description, t.amount, t.date);
+            if (match) {
+              isFuzzy = true;
+              fuzzyDetails = match;
+            }
+          }
+          return {
+            ...t,
+            tempId: t.externalId || `temp-import-${Math.random().toString(36).substr(2, 9)}`,
+            isDuplicate: isExactDup,
+            isFuzzyDuplicate: isFuzzy,
+            fuzzyMatchDetails: fuzzyDetails,
+            excluded: isFuzzy // Auto-exclude fuzzy matches, user can override
+          };
+        });
 
         setImportPreview(marked);
         // Reset input value
@@ -672,7 +729,7 @@ export default function App() {
 
     try {
       const selectedModel = localStorage.getItem('cobuy_gemini_selected_model') || 'gemini-2.5-flash';
-      
+
       const prompt = `Analiza estas transacciones de Mercado Pago y clasifícalas de forma inteligente.
 Tipos posibles:
 1. "income": si el monto es positivo o si es un abono/transferencia recibida.
@@ -722,7 +779,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
       const responseData = await response.json();
       const textResponse = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-      
+
       if (!textResponse) {
         throw new Error("No se recibió respuesta válida del modelo de IA.");
       }
@@ -875,7 +932,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
           const spentServices = newHistoryServices.reduce((acc, curr) => acc + curr.amount, 0);
-          
+
           const totalIncomesCard = newHistoryIncomes
             .filter(i => i.paymentMethod === 'tarjeta')
             .reduce((acc, curr) => acc + curr.amount, 0);
@@ -900,7 +957,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
         } else {
           const [year, month] = monthId.split('-');
           const monthNames = [
-            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
             'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
           ];
           const monthName = `${monthNames[parseInt(month) - 1]} ${year}`;
@@ -963,8 +1020,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   };
 
   const handleToggleBought = (id: string) => {
-    setItems((prev) => 
-      prev.map(item => 
+    setItems((prev) =>
+      prev.map(item =>
         item.id === id ? { ...item, bought: !item.bought } : item
       )
     );
@@ -1000,8 +1057,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   };
 
   const handleUpdateItem = (id: string, updatedData: Partial<ShoppingItem>) => {
-    setItems((prev) => 
-      prev.map(item => 
+    setItems((prev) =>
+      prev.map(item =>
         item.id === id ? { ...item, ...updatedData } : item
       )
     );
@@ -1080,12 +1137,23 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     setIsResetModalOpen(false);
   };
 
+  const handleDeleteHistoryMonth = (monthId: string) => {
+    if (window.confirm(`¿Estás seguro de que deseas eliminar por completo el historial del mes ${monthId}? Esta acción no se puede deshacer.`)) {
+      setMonthlyHistory(prev => prev.filter(h => h.monthId !== monthId));
+    }
+  };
+
   // Export List functionality
+  const [exportType, setExportType] = useState<'items' | 'unified' | 'full'>('items');
+
   const handleExportData = () => {
-    const keys = ['Producto', 'Lugar', 'Precio Unitario', 'Cantidad', 'Costo Total', 'Categoria', 'Metodo de Pago', 'Comprado', 'Fecha de Registro'];
-    const csvContent = [
-      keys.join(','),
-      ...items.map(i => [
+    let keys: string[] = [];
+    let csvRows: string[] = [];
+    let filename = '';
+
+    if (exportType === 'items') {
+      keys = ['Producto', 'Lugar', 'Precio Unitario', 'Cantidad', 'Costo Total', 'Categoria', 'Metodo de Pago', 'Comprado', 'Fecha de Registro', 'ID Externo'];
+      csvRows = items.map(i => [
         `"${i.name.replace(/"/g, '""')}"`,
         `"${i.place.replace(/"/g, '""')}"`,
         i.price.toFixed(2),
@@ -1094,15 +1162,86 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
         `"${i.category}"`,
         `"${PAYMENT_METHODS.find((method) => method.id === i.paymentMethod)?.name || 'Tarjeta'}"`,
         i.bought ? "SÍ" : "NO",
-        new Date(i.createdAt).toLocaleDateString('es-ES')
-      ].join(','))
-    ].join('\n');
+        new Date(i.createdAt).toLocaleDateString('es-ES'),
+        `"${i.externalId || ''}"`
+      ].join(','));
+      filename = `lista_compras_articulos_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else {
+      keys = ['Mes', 'Tipo', 'Fecha', 'Descripcion', 'Monto', 'Cantidad/Info', 'Total', 'Categoria/Detalle', 'Metodo de Pago', 'Estado', 'ID Externo'];
+      
+      const appendMonthRows = (monthName: string, itemsList: typeof items, servicesList: typeof servicePayments, incomesList: typeof incomes) => {
+        // Incomes
+        incomesList.forEach(inc => {
+          csvRows.push([
+            `"${monthName}"`,
+            '"Ingreso"',
+            new Date(inc.createdAt).toLocaleDateString('es-ES'),
+            `"${inc.name.replace(/"/g, '""')}"`,
+            inc.amount.toFixed(2),
+            '1',
+            inc.amount.toFixed(2),
+            '"Ingresos"',
+            `"${PAYMENT_METHODS.find(m => m.id === inc.paymentMethod)?.name || 'Tarjeta'}"`,
+            '"Recibido"',
+            `"${inc.externalId || ''}"`
+          ].join(','));
+        });
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        // Services
+        servicesList.forEach(s => {
+          csvRows.push([
+            `"${monthName}"`,
+            '"Servicio"',
+            new Date(s.createdAt).toLocaleDateString('es-ES'),
+            `"${s.service.replace(/"/g, '""')}"`,
+            (-s.amount).toFixed(2),
+            '1',
+            (-s.amount).toFixed(2),
+            '"Servicios"',
+            `"${PAYMENT_METHODS.find(m => m.id === s.paymentMethod)?.name || 'Tarjeta'}"`,
+            '"Pagado"',
+            `"${s.externalId || ''}"`
+          ].join(','));
+        });
+
+        // Items
+        itemsList.forEach(i => {
+          csvRows.push([
+            `"${monthName}"`,
+            '"Compra/Gasto"',
+            new Date(i.createdAt).toLocaleDateString('es-ES'),
+            `"${i.name.replace(/"/g, '""')}"`,
+            (-i.price).toFixed(2),
+            i.quantity,
+            (-(i.price * i.quantity)).toFixed(2),
+            `"${i.category}"`,
+            `"${PAYMENT_METHODS.find(m => m.id === i.paymentMethod)?.name || 'Tarjeta'}"`,
+            i.bought ? '"Comprado"' : '"Planificado"',
+            `"${i.externalId || ''}"`
+          ].join(','));
+        });
+      };
+
+      if (exportType === 'unified') {
+        appendMonthRows(currentMonthName, items, servicePayments, incomes);
+        filename = `estado_cuenta_unificado_${currentMonthName.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
+      } else {
+        // Full Backup: historical sorted chronologically + current active month
+        const sortedHistory = [...monthlyHistory].sort((a, b) => a.monthId.localeCompare(b.monthId));
+        sortedHistory.forEach(h => {
+          appendMonthRows(h.summary.monthName, h.items, h.servicePayments, h.incomes);
+        });
+        appendMonthRows(currentMonthName, items, servicePayments, incomes);
+        filename = `historial_completo_spendwise_${new Date().toISOString().slice(0, 10)}.csv`;
+      }
+    }
+
+    const csvContent = [keys.join(','), ...csvRows].join('\n');
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' }); // Added UTF-8 BOM to fix Excel encoding
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `lista_compras_cuentas_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -1144,27 +1283,25 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex font-sans text-slate-800" id="app-root-layout">
-      
+
       {/* Sidebar for Desktop & Drawer for Mobile */}
       {/* Sidebar Backdrop for Mobile */}
       {mobileSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs md:hidden transition-opacity duration-300"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar Component */}
-      <aside 
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r border-slate-200/80 transition-all duration-300 md:static ${
-          mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        } ${
-          sidebarCollapsed ? 'md:w-20' : 'md:w-72'
-        } w-72 shrink-0`}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r border-slate-200/80 transition-all duration-300 md:static overflow-hidden ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          } ${sidebarCollapsed ? 'md:w-20' : 'md:w-72'
+          } w-72 shrink-0`}
       >
         {/* Sidebar Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-slate-200/50">
-          <div className="flex items-center gap-2.5 overflow-hidden">
+        <div className={`h-16 flex items-center border-b border-slate-200/50 shrink-0 ${sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
+          <div className={`flex items-center gap-2.5 overflow-hidden ${sidebarCollapsed ? 'justify-center' : ''}`}>
             <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shrink-0">
               <ShoppingBag className="w-5 h-5 text-emerald-400 stroke-[2.5]" />
             </div>
@@ -1175,17 +1312,17 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
               </div>
             )}
           </div>
-          
+
           {/* Desktop collapse button */}
-          <button 
+          <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             className="hidden md:flex p-1.5 hover:bg-slate-50 border border-transparent hover:border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
           >
             {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
-          
+
           {/* Mobile close button */}
-          <button 
+          <button
             onClick={() => setMobileSidebarOpen(false)}
             className="md:hidden p-1.5 hover:bg-slate-50 border border-transparent rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
           >
@@ -1211,11 +1348,10 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   setActiveSection(item.id as any);
                   setMobileSidebarOpen(false);
                 }}
-                className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl transition-all duration-150 group cursor-pointer ${
-                  isActive 
-                    ? 'bg-slate-900 text-white shadow-sm shadow-slate-950/15' 
+                className={`w-full flex items-center gap-3.5 rounded-2xl transition-all duration-150 group cursor-pointer ${sidebarCollapsed ? 'justify-center p-2.5' : 'p-3.5'} ${isActive
+                    ? 'bg-slate-900 text-white shadow-sm shadow-slate-950/15'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
+                  }`}
                 title={item.label}
               >
                 <Icon className={`w-5 h-5 shrink-0 transition-transform group-hover:scale-105 ${isActive ? 'text-emerald-400' : 'text-slate-400 group-hover:text-slate-700'}`} />
@@ -1244,7 +1380,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
       {/* Content Area */}
       <div className="flex-grow flex flex-col min-h-screen overflow-x-hidden">
-        
+
         {/* Top Header Bar */}
         <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/50 h-16 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30 shadow-xs">
           {/* Mobile hamburger & active section title */}
@@ -1343,22 +1479,20 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                 <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-md w-full sm:w-auto shadow-xs">
                   <button
                     onClick={() => setCapitalTab('dashboard')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      capitalTab === 'dashboard'
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${capitalTab === 'dashboard'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-                    }`}
+                      }`}
                   >
                     <Wallet className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>Presupuesto y CSV</span>
                   </button>
                   <button
                     onClick={() => setCapitalTab('history')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      capitalTab === 'history'
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${capitalTab === 'history'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                         : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
-                    }`}
+                      }`}
                   >
                     <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>Historial de Cierres</span>
@@ -1368,8 +1502,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
               {capitalTab === 'dashboard' ? (
                 <>
-                  <BudgetCard 
-                    summary={budgetSummary} 
+                  <BudgetCard
+                    summary={budgetSummary}
                     onUpdateBudget={handleUpdateBudget}
                     onOpenCloseWizard={() => setIsCloseWizardOpen(true)}
                     totalIncomesCash={incomes.filter(i => i.paymentMethod === 'efectivo').reduce((acc, curr) => acc + curr.amount, 0)}
@@ -1396,7 +1530,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                         </h3>
                       </div>
                     </div>
-                    
+
                     <p className="text-xs text-slate-500 mb-5 leading-relaxed font-semibold">
                       Carga el archivo CSV de <strong>"Todas las transacciones"</strong> o <strong>"Dinero en cuenta"</strong> exportado desde tu cuenta de Mercado Pago. La aplicación clasificará los movimientos automáticamente, omitirá duplicados y registrará ingresos, gastos y pagos de servicios.
                     </p>
@@ -1416,7 +1550,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                         <Upload className="w-4 h-4 shrink-0" />
                         <span>Seleccionar CSV de Mercado Pago</span>
                       </label>
-                      
+
                       <div className="text-slate-450 text-[10.5px] font-bold leading-relaxed max-w-md font-medium">
                         El procesamiento es 100% privado en tu navegador. Tus transacciones no se guardan en ningún servidor externo.
                       </div>
@@ -1424,7 +1558,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   </div>
                 </>
               ) : (
-                <MonthlyHistory history={monthlyHistory} />
+                <MonthlyHistory history={monthlyHistory} onDeleteMonth={handleDeleteHistoryMonth} />
               )}
             </div>
           )}
@@ -1436,22 +1570,20 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                 <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs w-full sm:w-auto shadow-xs">
                   <button
                     onClick={() => setShoppingTab('list')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      shoppingTab === 'list'
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${shoppingTab === 'list'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                         : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
-                    }`}
+                      }`}
                   >
                     <ListTodo className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>Lista Actual</span>
                   </button>
                   <button
                     onClick={() => setShoppingTab('stores')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      shoppingTab === 'stores'
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${shoppingTab === 'stores'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                         : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
-                    }`}
+                      }`}
                   >
                     <Store className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>Cuentas por Lugar</span>
@@ -1470,7 +1602,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
               {shoppingTab === 'list' ? (
                 <div className="max-w-5xl mx-auto">
-                  <PurchaseList 
+                  <PurchaseList
                     items={items}
                     archivedItems={archivedItems}
                     selectedStoreFilter={selectedStoreFilter}
@@ -1484,7 +1616,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                 </div>
               ) : (
                 <div className="max-w-3xl mx-auto">
-                  <StoreSummary 
+                  <StoreSummary
                     items={items}
                     selectedStoreFilter={selectedStoreFilter}
                     onSelectStoreFilter={(store) => {
@@ -1526,22 +1658,20 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                 <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-md w-full sm:w-auto shadow-xs">
                   <button
                     onClick={() => setReportTab('charts')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      reportTab === 'charts'
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${reportTab === 'charts'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-                    }`}
+                      }`}
                   >
                     <BarChart3 className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>Gráficos de Gastos</span>
                   </button>
                   <button
                     onClick={() => setReportTab('calendar')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      reportTab === 'calendar'
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${reportTab === 'calendar'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                         : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
-                    }`}
+                      }`}
                   >
                     <Calendar className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>Calendario de Fechas</span>
@@ -1558,9 +1688,9 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   cardBudget={cardBudget}
                 />
               ) : (
-                <ExpenseCalendar 
-                  items={items} 
-                  servicePayments={servicePayments} 
+                <ExpenseCalendar
+                  items={items}
+                  servicePayments={servicePayments}
                 />
               )}
             </div>
@@ -1622,7 +1752,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
               <User className="w-5 h-5 text-emerald-500" />
               <h2 className="text-sm font-black text-slate-900">¿Cómo te llamas?</h2>
             </div>
-            
+
             <p className="text-xs text-slate-500 leading-relaxed font-medium">
               Escribe tu nombre para personalizar tu perfil y para que el asistente de Inteligencia Artificial se dirija a ti de manera cercana y personalizada.
             </p>
@@ -1675,25 +1805,61 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                 <Download className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-base font-black text-slate-900">Exportar lista de compras</h2>
+                <h2 className="text-base font-black text-slate-900">Exportar Reportes y Datos</h2>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Formato Excel / CSV</p>
               </div>
             </div>
-            
-            <div className="space-y-2 text-xs font-semibold text-slate-650 leading-relaxed">
-              <p>
-                Estás a punto de descargar un archivo en formato <strong>CSV (delimitado por comas)</strong> compatible con Excel, Google Sheets y otros programas de hojas de cálculo.
+
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-slate-650 leading-relaxed">
+                Selecciona la información que deseas exportar en formato <strong>CSV (delimitado por comas)</strong>:
               </p>
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-[11px] font-bold text-slate-500 space-y-1.5">
-                <p className="flex items-center gap-1.5 text-slate-700">
-                  <span className="text-emerald-500 font-bold">✓</span> Contiene todos los artículos planificados del mes activo.
-                </p>
-                <p className="flex items-center gap-1.5 text-slate-700">
-                  <span className="text-emerald-500 font-bold">✓</span> Detalla productos, precios, cantidades, totales, categorías y métodos de pago.
-                </p>
-                <p className="flex items-center gap-1.5 text-slate-700">
-                  <span className="text-emerald-500 font-bold">✓</span> Podrás abrirlo en cualquier computadora o dispositivo celular.
-                </p>
+              
+              <div className="space-y-2">
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 cursor-pointer transition select-none">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="items"
+                    checked={exportType === 'items'}
+                    onChange={() => setExportType('items')}
+                    className="mt-0.5 text-slate-900 focus:ring-slate-900 w-4 h-4 cursor-pointer"
+                  />
+                  <div>
+                    <p className="text-xs font-black text-slate-800">Solo artículos de compras (Mes activo)</p>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">Reporte tradicional de tus artículos de compras, cantidades y categorías.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 cursor-pointer transition select-none">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="unified"
+                    checked={exportType === 'unified'}
+                    onChange={() => setExportType('unified')}
+                    className="mt-0.5 text-slate-900 focus:ring-slate-900 w-4 h-4 cursor-pointer"
+                  />
+                  <div>
+                    <p className="text-xs font-black text-slate-800">Estado de cuenta unificado (Mes activo)</p>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">Incluye todas tus compras, ingresos y pagos de servicios de este mes.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 cursor-pointer transition select-none">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="full"
+                    checked={exportType === 'full'}
+                    onChange={() => setExportType('full')}
+                    className="mt-0.5 text-slate-900 focus:ring-slate-900 w-4 h-4 cursor-pointer"
+                  />
+                  <div>
+                    <p className="text-xs font-black text-slate-800">Historial completo acumulado</p>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">Respaldo total: exporta todos los meses archivados en tu historial y el activo.</p>
+                  </div>
+                </label>
               </div>
             </div>
 
@@ -1733,7 +1899,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       {importPreview && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200">
-            
+
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-150 flex items-center justify-between bg-slate-50 rounded-t-3xl shrink-0">
               <div>
@@ -1766,6 +1932,14 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                 <span className="flex items-center gap-1 text-slate-450 font-bold">
                   Duplicados: <span className="text-slate-500 font-black">{importPreview.filter(t => t.isDuplicate).length}</span> (se omitirán)
                 </span>
+                {importPreview.some(t => t.isFuzzyDuplicate) && (
+                  <>
+                    <span className="text-slate-300">|</span>
+                    <span className="flex items-center gap-1 text-orange-600 font-bold">
+                      ⚠ Posibles duplicados: <span className="text-orange-700 font-black">{importPreview.filter(t => t.isFuzzyDuplicate).length}</span>
+                    </span>
+                  </>
+                )}
                 <span className="text-slate-300">|</span>
                 <span className="flex items-center gap-1 text-amber-600 font-bold">
                   Ambiguas: <span className="text-amber-700 font-black">{importPreview.filter(t => !t.isDuplicate && t.type === 'ambiguous' && !t.excluded).length}</span>
@@ -1802,14 +1976,15 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
                     {importPreview.map((item) => {
-                      if (item.isDuplicate) return null; // No mostrar duplicados en la lista a procesar
+                      if (item.isDuplicate) return null; // No mostrar duplicados exactos en la lista
 
                       const isExcluded = !!item.excluded;
+                      const isFuzzy = !!item.isFuzzyDuplicate;
 
                       return (
-                        <tr 
-                          key={item.tempId} 
-                          className={`hover:bg-slate-50 transition-colors ${isExcluded ? 'opacity-40 bg-slate-50/50' : ''}`}
+                        <tr
+                          key={item.tempId}
+                          className={`hover:bg-slate-50 transition-colors ${isExcluded ? 'opacity-40 bg-slate-50/50' : ''} ${isFuzzy && !isExcluded ? 'bg-orange-50/60' : ''}`}
                         >
                           {/* Toggle Excluded */}
                           <td className="py-3 px-4 text-center">
@@ -1916,8 +2091,22 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
                           {/* Status Badge */}
                           <td className="py-3 px-4 text-center whitespace-nowrap">
-                            {isExcluded ? (
+                            {isExcluded && isFuzzy ? (
+                              <div className="space-y-1">
+                                <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-250 font-extrabold text-[10px] block text-center">Posible Duplicado</span>
+                                <p className="text-[9px] text-orange-600 font-semibold leading-tight max-w-[140px]" title={item.fuzzyMatchDetails}>
+                                  Coincide con: {item.fuzzyMatchDetails}
+                                </p>
+                              </div>
+                            ) : isExcluded ? (
                               <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 font-extrabold text-[10px]">Excluido</span>
+                            ) : isFuzzy ? (
+                              <div className="space-y-1">
+                                <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-250 font-extrabold text-[10px] block text-center">⚠ Posible Dup.</span>
+                                <p className="text-[9px] text-orange-600 font-semibold leading-tight max-w-[140px]" title={item.fuzzyMatchDetails}>
+                                  Coincide con: {item.fuzzyMatchDetails}
+                                </p>
+                              </div>
                             ) : item.type === 'ambiguous' ? (
                               <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-250 font-extrabold text-[10px]">Revisar</span>
                             ) : (
@@ -1963,7 +2152,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       {isPlanningModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-in fade-in duration-200" role="dialog" aria-modal="true">
           <div className="w-full max-w-2xl rounded-3xl bg-[#F8FAFC] shadow-2xl border border-slate-200 p-6 space-y-4 animate-in zoom-in duration-250 relative overflow-y-auto max-h-[90vh]">
-            <button 
+            <button
               onClick={() => setIsPlanningModalOpen(false)}
               className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
             >
@@ -1972,11 +2161,11 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             <div className="border-b border-slate-100 pb-2">
               <h2 className="text-base font-black text-slate-900">Planificar Nueva Compra</h2>
             </div>
-            <AddItemForm 
+            <AddItemForm
               onAddItem={(item) => {
                 handleAddItem(item);
                 setIsPlanningModalOpen(false);
-              }} 
+              }}
               existingPlaces={existingPlaces}
               onAddPlace={handleAddPlace}
               categories={categories}
@@ -2015,6 +2204,10 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
         onAddIncome={handleAddIncome}
         onDeleteIncome={handleDeleteIncome}
         apartados={apartados}
+        onAddApartado={handleAddApartado}
+        onDepositToApartado={handleDepositToApartado}
+        onWithdrawFromApartado={handleWithdrawFromApartado}
+        onDeleteApartado={handleDeleteApartado}
       />
 
     </div>
