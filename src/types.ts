@@ -22,6 +22,7 @@ export interface ShoppingItem {
   bought: boolean;    // Estado (Planificado / Comprado)
   paymentMethod: PaymentMethod; // Metodo de pago
   createdAt: string;  // Fecha de creación
+  externalId?: string; // ID único de transacción (ej. Mercado Pago)
 }
 
 export interface ServicePayment {
@@ -32,6 +33,7 @@ export interface ServicePayment {
   createdAt: string;   // Fecha de registro
   isRecurring?: boolean; // ¿Es recurrente/suscripción mensual?
   recurringDay?: number; // Día del mes para el cobro (1 al 31)
+  externalId?: string; // ID único de transacción (ej. Mercado Pago)
 }
 
 export interface ArchivedItem extends ShoppingItem {
@@ -96,6 +98,7 @@ export interface Income {
   amount: number;
   paymentMethod: 'efectivo' | 'tarjeta';
   createdAt: string;
+  externalId?: string; // ID único de transacción (ej. Mercado Pago)
 }
 
 export interface MonthlySummary {

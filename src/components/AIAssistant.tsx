@@ -784,6 +784,17 @@ Reglas importantes:
             }
           },
           {
+            name: 'delete_income_by_name',
+            description: 'Busca un ingreso de dinero activo por su nombre o concepto y lo elimina.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING', description: 'Nombre o concepto del ingreso a borrar' }
+              },
+              required: ['name']
+            }
+          },
+          {
             name: 'reset_database_proposed',
             description: 'Propone restablecer por completo la base de datos (borra compras, historial, presupuestos y regresa a demo por defecto). Requiere confirmación.',
             parameters: {
@@ -1196,6 +1207,16 @@ Reglas importantes:
     return `Se ha restablecido por completo la base de datos de la aplicación.`;
   };
 
+  const executeDeleteIncome = (args: { name: string }) => {
+    if (!incomes || !onDeleteIncome) return 'La función de eliminar ingresos no está disponible en este momento.';
+    const target = incomes.find(inc => inc.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (target) {
+      onDeleteIncome(target.id);
+      return `Se eliminó el ingreso de '${target.name}' por un monto de $${target.amount}.`;
+    }
+    return `No encontré ningún ingreso registrado que coincida con '${args.name}'.`;
+  };
+
   // Human-in-the-loop: Confirm or Reject Card Actions
   const handleConfirmTool = (messageId: string, customArgs: any) => {
     const message = messages.find(m => m.id === messageId);
@@ -1309,6 +1330,9 @@ Reglas importantes:
           onAddIncome(incomeData);
         }
         feedbackText = `¡Ingreso registrado! Se añadieron $${incomeData.amount.toFixed(2)} por concepto de '${incomeData.name}' a tu presupuesto de ${incomeData.paymentMethod}.`;
+      }
+      else if (toolName === 'delete_income_by_name') {
+        feedbackText = executeDeleteIncome(finalArgs);
       }
       else if (toolName === 'reset_database_proposed') {
         feedbackText = executeResetDatabase();

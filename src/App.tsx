@@ -26,7 +26,8 @@ import {
   Menu,
   X,
   Coins,
-  Sparkles
+  Sparkles,
+  Upload
 } from 'lucide-react';
 import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS, ServicePayment, PREDEFINED_SERVICES, Income, MonthlySummary, MonthlyHistoryRecord, Apartado } from './types';
 import BudgetCard from './components/BudgetCard';
@@ -40,6 +41,7 @@ import AIAssistant from './components/AIAssistant';
 import IncomesManager from './components/IncomesManager';
 import MonthCloseWizard from './components/MonthCloseWizard';
 import MonthlyHistory from './components/MonthlyHistory';
+import { parseMercadoPagoCSV } from './utils/csvParser';
 
 // Initial demo data to showcase calculating capabilities immediately
 const DEFAULT_BUDGET = 350.00;
@@ -114,7 +116,6 @@ export default function App() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [categories, setCategories] = useState(PREDEFINED_CATEGORIES);
-  const [activeTab, setActiveTab] = useState<'list' | 'calendar' | 'charts' | 'history'>('list');
   const [userName, setUserName] = useState<string>(() => localStorage.getItem('cobuy_username') || 'Usuario');
   const [isNameModalOpen, setIsNameModalOpen] = useState(false);
   const [tempName, setTempName] = useState(userName);
@@ -128,10 +129,31 @@ export default function App() {
   const [apartados, setApartados] = useState<Apartado[]>([]);
 
   // Navigation and sidebar states
-  const [activeSection, setActiveSection] = useState<'capital' | 'shopping-list' | 'plan-purchase' | 'incomes' | 'services' | 'store-summary'>('capital');
+  const [activeSection, setActiveSection] = useState<'capital' | 'shopping-list' | 'incomes' | 'services' | 'reports'>('capital');
+  const [capitalTab, setCapitalTab] = useState<'dashboard' | 'history'>('dashboard');
+  const [shoppingTab, setShoppingTab] = useState<'list' | 'stores'>('list');
+  const [reportTab, setReportTab] = useState<'charts' | 'calendar'>('charts');
+  const [isPlanningModalOpen, setIsPlanningModalOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  // Mercado Pago CSV import states
+  interface PreviewItem {
+    tempId: string;
+    externalId: string;
+    date: string;
+    description: string;
+    amount: number;
+    status: string;
+    type: 'income' | 'expense' | 'service' | 'ambiguous';
+    inferredCategory: string;
+    inferredService?: string;
+    isDuplicate: boolean;
+    excluded?: boolean;
+  }
+  const [importPreview, setImportPreview] = useState<PreviewItem[] | null>(null);
+  const [isAIClassifying, setIsAIClassifying] = useState(false);
 
   const handleUpdateUserName = (newName: string) => {
     const trimmed = newName.trim();
@@ -590,6 +612,343 @@ export default function App() {
     setIsCloseWizardOpen(false);
   };
 
+  const handleCSVFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      try {
+        const parsed = parseMercadoPagoCSV(text);
+        if (parsed.length === 0) {
+          alert("No se encontraron transacciones válidas en el archivo.");
+          return;
+        }
+        
+        // Gather all existing external IDs for deduplication
+        const existingIds = new Set<string>();
+        items.forEach(i => i.externalId && existingIds.add(i.externalId));
+        servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
+        incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
+        monthlyHistory.forEach(h => {
+          h.items.forEach(i => i.externalId && existingIds.add(i.externalId));
+          h.servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
+          h.incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
+        });
+
+        // Filter duplicates or mark them
+        const marked: PreviewItem[] = parsed.map(t => ({
+          ...t,
+          tempId: t.externalId || `temp-import-${Math.random().toString(36).substr(2, 9)}`,
+          isDuplicate: t.externalId ? existingIds.has(t.externalId) : false
+        }));
+
+        setImportPreview(marked);
+        // Reset input value
+        e.target.value = '';
+      } catch (err: any) {
+        alert(`Error al analizar el CSV: ${err.message}`);
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+  };
+
+  const handleClassifyWithAI = async () => {
+    if (!importPreview) return;
+    const apiKey = localStorage.getItem('cobuy_gemini_api_key') || '';
+    if (!apiKey.trim()) {
+      alert("Por favor, configura tu API Key de Gemini en el Asistente de IA (ícono de estrella arriba) para poder usar la clasificación inteligente.");
+      return;
+    }
+
+    const ambiguousItems = importPreview.filter(t => !t.isDuplicate && t.type === 'ambiguous' && !t.excluded);
+    if (ambiguousItems.length === 0) {
+      alert("No hay transacciones ambiguas para clasificar en este momento.");
+      return;
+    }
+
+    setIsAIClassifying(true);
+
+    try {
+      const selectedModel = localStorage.getItem('cobuy_gemini_selected_model') || 'gemini-2.5-flash';
+      
+      const prompt = `Analiza estas transacciones de Mercado Pago y clasifícalas de forma inteligente.
+Tipos posibles:
+1. "income": si el monto es positivo o si es un abono/transferencia recibida.
+2. "service": si es un pago a un servicio frecuente (ej. Uber, Didi, Rappi, Netflix, Spotify, Internet, Luz, Agua, Gas, Celular).
+3. "expense": para cualquier otra compra de bienes/comida/artículos.
+
+Si es "expense", asígnale una categoría de compra de las siguientes: "comida", "hogar", "tecnologia", "ropa", "salud", "otros".
+Si es "service", indica el nombre exacto del servicio en "serviceName" (ej. "Uber", "Spotify", "Netflix", "Internet", "Luz", etc., o "Otro servicio" si es uno recurrente pero no listado).
+
+Transacciones a clasificar:
+${JSON.stringify(ambiguousItems.map(item => ({ tempId: item.tempId, description: item.description, amount: item.amount })))}
+
+Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código markdown como \`\`\`json) en este formato:
+[
+  {
+    "tempId": "id temporal de la transaccion",
+    "type": "income" | "expense" | "service",
+    "category": "comida" | "hogar" | "tecnologia" | "ropa" | "salud" | "otros",
+    "serviceName": "nombre_del_servicio_o_vacio"
+  }
+]`;
+
+      const requestBody = {
+        contents: [{
+          role: 'user',
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      };
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey.trim()}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Error del API: HTTP ${response.status}`);
+      }
+
+      const responseData = await response.json();
+      const textResponse = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (!textResponse) {
+        throw new Error("No se recibió respuesta válida del modelo de IA.");
+      }
+
+      const classifications = JSON.parse(textResponse.trim());
+      if (Array.isArray(classifications)) {
+        setImportPreview(prev => {
+          if (!prev) return null;
+          return prev.map(item => {
+            const match = classifications.find((c: any) => c.tempId === item.tempId);
+            if (match) {
+              return {
+                ...item,
+                type: match.type || 'expense',
+                inferredCategory: match.category || 'otros',
+                inferredService: match.serviceName || undefined
+              };
+            }
+            return item;
+          });
+        });
+        alert(`Se han clasificado con éxito ${classifications.length} transacciones usando Gemini.`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error al clasificar con IA: ${err.message}. Verifica tu API Key y conexión.`);
+    } finally {
+      setIsAIClassifying(false);
+    }
+  };
+
+  const handleConfirmImport = (itemsToImport: PreviewItem[]) => {
+    if (itemsToImport.length === 0) return;
+
+    const [currYear, currMonthVal] = currentMonth.split('-').map(Number);
+
+    const newItems: ShoppingItem[] = [];
+    const newServices: ServicePayment[] = [];
+    const newIncomes: Income[] = [];
+
+    const historyUpdates: Record<string, { items: ShoppingItem[], servicePayments: ServicePayment[], incomes: Income[] }> = {};
+
+    let cardBudgetAdjustment = 0;
+
+    itemsToImport.forEach(item => {
+      const itemDate = new Date(item.date);
+      const itemYear = itemDate.getFullYear();
+      const itemMonth = itemDate.getMonth() + 1;
+      const monthId = `${itemYear}-${String(itemMonth).padStart(2, '0')}`;
+      const isActiveMonth = itemYear === currYear && itemMonth === currMonthVal;
+
+      if (isActiveMonth) {
+        if (item.type === 'income') {
+          const newInc: Income = {
+            id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: item.description,
+            amount: Math.abs(item.amount),
+            paymentMethod: 'tarjeta',
+            createdAt: item.date,
+            externalId: item.externalId
+          };
+          newIncomes.push(newInc);
+          cardBudgetAdjustment += newInc.amount;
+        } else if (item.type === 'service') {
+          const newServ: ServicePayment = {
+            id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            service: item.inferredService || 'Otro servicio',
+            amount: Math.abs(item.amount),
+            paymentMethod: 'tarjeta',
+            createdAt: item.date,
+            isRecurring: false,
+            externalId: item.externalId
+          };
+          newServices.push(newServ);
+        } else {
+          const newExp: ShoppingItem = {
+            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: item.description,
+            place: 'Mercado Pago',
+            price: Math.abs(item.amount),
+            quantity: 1,
+            category: item.inferredCategory || 'otros',
+            bought: true,
+            paymentMethod: 'tarjeta',
+            createdAt: item.date,
+            externalId: item.externalId
+          };
+          newItems.push(newExp);
+        }
+      } else {
+        if (!historyUpdates[monthId]) {
+          historyUpdates[monthId] = { items: [], servicePayments: [], incomes: [] };
+        }
+
+        if (item.type === 'income') {
+          historyUpdates[monthId].incomes.push({
+            id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: item.description,
+            amount: Math.abs(item.amount),
+            paymentMethod: 'tarjeta',
+            createdAt: item.date,
+            externalId: item.externalId
+          });
+        } else if (item.type === 'service') {
+          historyUpdates[monthId].servicePayments.push({
+            id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            service: item.inferredService || 'Otro servicio',
+            amount: Math.abs(item.amount),
+            paymentMethod: 'tarjeta',
+            createdAt: item.date,
+            isRecurring: false,
+            externalId: item.externalId
+          });
+        } else {
+          historyUpdates[monthId].items.push({
+            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: item.description,
+            place: 'Mercado Pago',
+            price: Math.abs(item.amount),
+            quantity: 1,
+            category: item.inferredCategory || 'otros',
+            bought: true,
+            paymentMethod: 'tarjeta',
+            createdAt: item.date,
+            externalId: item.externalId
+          });
+        }
+      }
+    });
+
+    if (newItems.length > 0) setItems(prev => [...newItems, ...prev]);
+    if (newServices.length > 0) setServicePayments(prev => [...newServices, ...prev]);
+    if (newIncomes.length > 0) setIncomes(prev => [...newIncomes, ...prev]);
+    if (cardBudgetAdjustment !== 0) setCardBudget(prev => prev + cardBudgetAdjustment);
+
+    setMonthlyHistory(prev => {
+      const updatedHistory = [...prev];
+
+      Object.entries(historyUpdates).forEach(([monthId, updates]) => {
+        const existingRecordIdx = updatedHistory.findIndex(h => h.monthId === monthId);
+
+        if (existingRecordIdx !== -1) {
+          const record = updatedHistory[existingRecordIdx];
+          const newHistoryItems = [...record.items, ...updates.items];
+          const newHistoryServices = [...record.servicePayments, ...updates.servicePayments];
+          const newHistoryIncomes = [...record.incomes, ...updates.incomes];
+
+          const spentCard = newHistoryItems
+            .filter(i => i.paymentMethod !== 'efectivo')
+            .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+
+          const spentServices = newHistoryServices.reduce((acc, curr) => acc + curr.amount, 0);
+          
+          const totalIncomesCard = newHistoryIncomes
+            .filter(i => i.paymentMethod === 'tarjeta')
+            .reduce((acc, curr) => acc + curr.amount, 0);
+
+          const remainingCardVal = Math.max(0, record.summary.initialCardBudget + totalIncomesCard - spentCard - spentServices);
+
+          const updatedSummary = {
+            ...record.summary,
+            totalIncomesCard,
+            totalSpentCard: spentCard,
+            totalSpentServices: spentServices,
+            remainingCard: remainingCardVal
+          };
+
+          updatedHistory[existingRecordIdx] = {
+            ...record,
+            items: newHistoryItems,
+            servicePayments: newHistoryServices,
+            incomes: newHistoryIncomes,
+            summary: updatedSummary
+          };
+        } else {
+          const [year, month] = monthId.split('-');
+          const monthNames = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+          ];
+          const monthName = `${monthNames[parseInt(month) - 1]} ${year}`;
+
+          const spentCard = updates.items
+            .filter(i => i.paymentMethod !== 'efectivo')
+            .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+
+          const spentServices = updates.servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
+
+          const totalIncomesCard = updates.incomes
+            .filter(i => i.paymentMethod === 'tarjeta')
+            .reduce((acc, curr) => acc + curr.amount, 0);
+
+          const remainingCardVal = Math.max(0, totalIncomesCard - spentCard - spentServices);
+
+          const newSummary = {
+            monthId,
+            monthName,
+            initialCashBudget: 0,
+            initialCardBudget: 0,
+            totalIncomesCash: 0,
+            totalIncomesCard,
+            totalSpentCash: 0,
+            totalSpentCard: spentCard,
+            totalSpentServices: spentServices,
+            remainingCash: 0,
+            remainingCard: remainingCardVal,
+            createdAt: new Date().toISOString()
+          };
+
+          updatedHistory.push({
+            monthId,
+            summary: newSummary,
+            items: updates.items,
+            servicePayments: updates.servicePayments,
+            incomes: updates.incomes
+          });
+        }
+      });
+
+      return updatedHistory.sort((a, b) => b.monthId.localeCompare(a.monthId));
+    });
+
+    setImportPreview(null);
+    alert(`Importación completada con éxito. Se agregaron ${itemsToImport.length} transacciones.`);
+  };
+
   // Core Mutation Actions
   const handleAddItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
     const newItem: ShoppingItem = {
@@ -837,12 +1196,11 @@ export default function App() {
         {/* Sidebar Navigation Items */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {[
-            { id: 'capital', label: 'Capital y Apartados', icon: Wallet, desc: 'Presupuesto y fondos' },
-            { id: 'shopping-list', label: 'Lista de Compras', icon: ListTodo, desc: 'Mis compras e historia' },
-            { id: 'plan-purchase', label: 'Planificar Compra', icon: Plus, desc: 'Agregar productos' },
+            { id: 'capital', label: 'Mi Capital', icon: Wallet, desc: 'Presupuestos e Historial' },
+            { id: 'shopping-list', label: 'Lista de Compras', icon: ListTodo, desc: 'Gestión de compras' },
             { id: 'incomes', label: 'Ingresos del Mes', icon: Coins, desc: 'Control de ingresos' },
             { id: 'services', label: 'Pagos de Servicio', icon: Receipt, desc: 'Facturas y servicios' },
-            { id: 'store-summary', label: 'Cuentas por Lugar', icon: Store, desc: 'Suma por establecimiento' }
+            { id: 'reports', label: 'Reportes y Calendario', icon: BarChart3, desc: 'Gráficos y fechas' }
           ].map((item) => {
             const isActive = activeSection === item.id;
             const Icon = item.icon;
@@ -898,12 +1256,11 @@ export default function App() {
               <Menu className="w-5 h-5" />
             </button>
             <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight capitalize">
-              {activeSection === 'capital' && 'Capital & Presupuestos'}
-              {activeSection === 'shopping-list' && 'Lista de Compras e Historias'}
-              {activeSection === 'plan-purchase' && 'Planificar Nueva Compra'}
-              {activeSection === 'incomes' && 'Ingresos Mensuales'}
-              {activeSection === 'services' && 'Control de Servicios'}
-              {activeSection === 'store-summary' && 'Cuentas por Lugar'}
+              {activeSection === 'capital' && 'Mi Capital & Historial'}
+              {activeSection === 'shopping-list' && 'Lista de Compras'}
+              {activeSection === 'incomes' && 'Ingresos del Mes'}
+              {activeSection === 'services' && 'Pagos de Servicio'}
+              {activeSection === 'reports' && 'Reportes y Calendario'}
             </h2>
           </div>
 
@@ -980,76 +1337,138 @@ export default function App() {
 
           {/* Section Rendering */}
           {activeSection === 'capital' && (
-            <div className="max-w-5xl mx-auto animate-in fade-in duration-200">
-              <BudgetCard 
-                summary={budgetSummary} 
-                onUpdateBudget={handleUpdateBudget}
-                onOpenCloseWizard={() => setIsCloseWizardOpen(true)}
-                totalIncomesCash={incomes.filter(i => i.paymentMethod === 'efectivo').reduce((acc, curr) => acc + curr.amount, 0)}
-                totalIncomesCard={incomes.filter(i => i.paymentMethod === 'tarjeta').reduce((acc, curr) => acc + curr.amount, 0)}
-                apartados={apartados}
-                onAddApartado={handleAddApartado}
-                onDepositToApartado={handleDepositToApartado}
-                onWithdrawFromApartado={handleWithdrawFromApartado}
-                onDeleteApartado={handleDeleteApartado}
-              />
+            <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-200">
+              {/* Tabs selector */}
+              <div className="flex justify-center" id="capital-tabs">
+                <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-md w-full sm:w-auto shadow-xs">
+                  <button
+                    onClick={() => setCapitalTab('dashboard')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      capitalTab === 'dashboard'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <Wallet className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>Presupuesto y CSV</span>
+                  </button>
+                  <button
+                    onClick={() => setCapitalTab('history')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      capitalTab === 'history'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>Historial de Cierres</span>
+                  </button>
+                </div>
+              </div>
+
+              {capitalTab === 'dashboard' ? (
+                <>
+                  <BudgetCard 
+                    summary={budgetSummary} 
+                    onUpdateBudget={handleUpdateBudget}
+                    onOpenCloseWizard={() => setIsCloseWizardOpen(true)}
+                    totalIncomesCash={incomes.filter(i => i.paymentMethod === 'efectivo').reduce((acc, curr) => acc + curr.amount, 0)}
+                    totalIncomesCard={incomes.filter(i => i.paymentMethod === 'tarjeta').reduce((acc, curr) => acc + curr.amount, 0)}
+                    apartados={apartados}
+                    onAddApartado={handleAddApartado}
+                    onDepositToApartado={handleDepositToApartado}
+                    onWithdrawFromApartado={handleWithdrawFromApartado}
+                    onDeleteApartado={handleDeleteApartado}
+                  />
+
+                  {/* Mercado Pago CSV Import Card */}
+                  <div className="glass-card rounded-3xl p-6 md:p-8 border border-slate-200/85 hover:shadow-md transition-all duration-300 bg-white" id="mp-csv-import-card">
+                    <div className="flex items-center gap-2.5 text-slate-500 mb-4">
+                      <div className="p-2 bg-indigo-50 text-indigo-650 rounded-2xl border border-indigo-100 shadow-2xs">
+                        <Upload className="w-5 h-5 text-indigo-500 shrink-0 animate-bounce" />
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-400 block leading-none">
+                          Extracto Digital
+                        </span>
+                        <h3 className="text-base font-black text-slate-900 mt-1">
+                          Importar Movimientos de Mercado Pago
+                        </h3>
+                      </div>
+                    </div>
+                    
+                    <p className="text-xs text-slate-500 mb-5 leading-relaxed font-semibold">
+                      Carga el archivo CSV de <strong>"Todas las transacciones"</strong> o <strong>"Dinero en cuenta"</strong> exportado desde tu cuenta de Mercado Pago. La aplicación clasificará los movimientos automáticamente, omitirá duplicados y registrará ingresos, gastos y pagos de servicios.
+                    </p>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handleCSVFileChange}
+                        className="hidden"
+                        id="mp-csv-upload-input"
+                      />
+                      <label
+                        htmlFor="mp-csv-upload-input"
+                        className="flex items-center justify-center gap-2 px-5 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black cursor-pointer shadow-sm hover:shadow active:scale-97 transition duration-150 shrink-0 select-none"
+                      >
+                        <Upload className="w-4 h-4 shrink-0" />
+                        <span>Seleccionar CSV de Mercado Pago</span>
+                      </label>
+                      
+                      <div className="text-slate-450 text-[10.5px] font-bold leading-relaxed max-w-md font-medium">
+                        El procesamiento es 100% privado en tu navegador. Tus transacciones no se guardan en ningún servidor externo.
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <MonthlyHistory history={monthlyHistory} />
+              )}
             </div>
           )}
 
           {activeSection === 'shopping-list' && (
             <div className="space-y-6 animate-in fade-in duration-200">
-              {/* Internal Sub-Tabs Navigation for stories */}
-              <div className="flex justify-center" id="view-mode-tabs">
-                <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-2xl w-full sm:w-auto shadow-xs">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 max-w-5xl mx-auto">
+                {/* Tabs selector */}
+                <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs w-full sm:w-auto shadow-xs">
                   <button
-                    onClick={() => setActiveTab('list')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      activeTab === 'list' 
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    onClick={() => setShoppingTab('list')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      shoppingTab === 'list'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
                     }`}
                   >
-                    <ListTodo className="w-4 h-4 text-slate-700 shrink-0" />
+                    <ListTodo className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>Lista Actual</span>
                   </button>
                   <button
-                    onClick={() => setActiveTab('calendar')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      activeTab === 'calendar' 
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    onClick={() => setShoppingTab('stores')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      shoppingTab === 'stores'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
                     }`}
                   >
-                    <Calendar className="w-4 h-4 text-slate-700 shrink-0" />
-                    <span>Calendario</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('charts')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      activeTab === 'charts' 
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-                    }`}
-                  >
-                    <BarChart3 className="w-4 h-4 text-slate-700 shrink-0" />
-                    <span>Gráficos</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('history')}
-                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
-                      activeTab === 'history' 
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200' 
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
-                    }`}
-                  >
-                    <FileText className="w-4 h-4 text-slate-700 shrink-0" />
-                    <span>Historial</span>
+                    <Store className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>Cuentas por Lugar</span>
                   </button>
                 </div>
+
+                {/* Plan button */}
+                <button
+                  onClick={() => setIsPlanningModalOpen(true)}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black cursor-pointer shadow-sm active:scale-97 transition duration-150 shrink-0"
+                >
+                  <Plus className="w-4 h-4 text-white shrink-0" />
+                  <span>Planificar Compra</span>
+                </button>
               </div>
 
-              {/* Sub-Tab content */}
-              {activeTab === 'list' ? (
+              {shoppingTab === 'list' ? (
                 <div className="max-w-5xl mx-auto">
                   <PurchaseList 
                     items={items}
@@ -1063,38 +1482,18 @@ export default function App() {
                     categories={categories}
                   />
                 </div>
-              ) : activeTab === 'calendar' ? (
-                <ExpenseCalendar 
-                  items={items} 
-                  servicePayments={servicePayments} 
-                />
-              ) : activeTab === 'charts' ? (
-                <ExpenseCharts
-                  items={items}
-                  servicePayments={servicePayments}
-                  categories={categories}
-                  cashBudget={cashBudget}
-                  cardBudget={cardBudget}
-                />
               ) : (
-                <MonthlyHistory history={monthlyHistory} />
+                <div className="max-w-3xl mx-auto">
+                  <StoreSummary 
+                    items={items}
+                    selectedStoreFilter={selectedStoreFilter}
+                    onSelectStoreFilter={(store) => {
+                      setSelectedStoreFilter(store);
+                      setShoppingTab('list');
+                    }}
+                  />
+                </div>
               )}
-            </div>
-          )}
-
-          {activeSection === 'plan-purchase' && (
-            <div className="max-w-2xl mx-auto animate-in fade-in duration-200">
-              <AddItemForm 
-                onAddItem={(item) => {
-                  handleAddItem(item);
-                  setActiveSection('shopping-list');
-                  setActiveTab('list');
-                }} 
-                existingPlaces={existingPlaces}
-                onAddPlace={handleAddPlace}
-                categories={categories}
-                onAddCategory={handleAddCategory}
-              />
             </div>
           )}
 
@@ -1120,17 +1519,50 @@ export default function App() {
             </div>
           )}
 
-          {activeSection === 'store-summary' && (
-            <div className="max-w-3xl mx-auto animate-in fade-in duration-200">
-              <StoreSummary 
-                items={items}
-                selectedStoreFilter={selectedStoreFilter}
-                onSelectStoreFilter={(store) => {
-                  setSelectedStoreFilter(store);
-                  setActiveSection('shopping-list');
-                  setActiveTab('list');
-                }}
-              />
+          {activeSection === 'reports' && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              {/* Tabs selector */}
+              <div className="flex justify-center" id="report-tabs">
+                <div className="bg-slate-200/60 p-1 rounded-2xl flex items-center gap-0.5 sm:gap-1 border border-slate-300/40 backdrop-blur-xs max-w-md w-full sm:w-auto shadow-xs">
+                  <button
+                    onClick={() => setReportTab('charts')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      reportTab === 'charts'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>Gráficos de Gastos</span>
+                  </button>
+                  <button
+                    onClick={() => setReportTab('calendar')}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${
+                      reportTab === 'calendar'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>Calendario de Fechas</span>
+                  </button>
+                </div>
+              </div>
+
+              {reportTab === 'charts' ? (
+                <ExpenseCharts
+                  items={items}
+                  servicePayments={servicePayments}
+                  categories={categories}
+                  cashBudget={cashBudget}
+                  cardBudget={cardBudget}
+                />
+              ) : (
+                <ExpenseCalendar 
+                  items={items} 
+                  servicePayments={servicePayments} 
+                />
+              )}
             </div>
           )}
         </main>
@@ -1297,6 +1729,262 @@ export default function App() {
         incomes={incomes}
         onConfirmClose={handleConfirmCloseMonth}
       />
+
+      {importPreview && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-150 flex items-center justify-between bg-slate-50 rounded-t-3xl shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <span>📊</span> Previsualización de Importación: Mercado Pago
+                </h3>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  Revisa y clasifica las transacciones antes de guardarlas en tu base de datos local.
+                </p>
+              </div>
+              <button
+                onClick={() => setImportPreview(null)}
+                className="p-1.5 hover:bg-slate-200/70 text-slate-400 hover:text-slate-700 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Statistics and AI Tools Bar */}
+            <div className="px-6 py-4 bg-slate-100/50 border-b border-slate-150 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shrink-0">
+              <div className="flex flex-wrap items-center gap-3.5 text-xs text-slate-600">
+                <span className="flex items-center gap-1 font-bold">
+                  Leídas: <span className="text-slate-900 font-black">{importPreview.length}</span>
+                </span>
+                <span className="text-slate-300">|</span>
+                <span className="flex items-center gap-1 text-emerald-650 font-bold">
+                  Nuevas: <span className="text-emerald-700 font-black">{importPreview.filter(t => !t.isDuplicate).length}</span>
+                </span>
+                <span className="text-slate-300">|</span>
+                <span className="flex items-center gap-1 text-slate-450 font-bold">
+                  Duplicados: <span className="text-slate-500 font-black">{importPreview.filter(t => t.isDuplicate).length}</span> (se omitirán)
+                </span>
+                <span className="text-slate-300">|</span>
+                <span className="flex items-center gap-1 text-amber-600 font-bold">
+                  Ambiguas: <span className="text-amber-700 font-black">{importPreview.filter(t => !t.isDuplicate && t.type === 'ambiguous' && !t.excluded).length}</span>
+                </span>
+              </div>
+
+              {/* AI Action Button */}
+              {importPreview.some(t => !t.isDuplicate && t.type === 'ambiguous' && !t.excluded) && (
+                <button
+                  onClick={handleClassifyWithAI}
+                  disabled={isAIClassifying}
+                  className="flex items-center justify-center gap-2 px-4.5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-650 hover:from-violet-755 hover:to-indigo-750 text-white rounded-xl text-xs font-black shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-violet-200 animate-pulse shrink-0" />
+                  <span>{isAIClassifying ? 'Clasificando con Gemini...' : 'Clasificar ambiguas con IA'}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Modal Table / List Body */}
+            <div className="flex-grow overflow-y-auto p-6 space-y-4">
+              <div className="overflow-x-auto border border-slate-150 rounded-2xl">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-150 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                      <th className="py-3 px-4 w-12 text-center">Importar</th>
+                      <th className="py-3 px-4">Fecha</th>
+                      <th className="py-3 px-4">Descripción</th>
+                      <th className="py-3 px-4">Monto</th>
+                      <th className="py-3 px-4">Tipo de Registro</th>
+                      <th className="py-3 px-4">Categoría / Servicio</th>
+                      <th className="py-3 px-4 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {importPreview.map((item) => {
+                      if (item.isDuplicate) return null; // No mostrar duplicados en la lista a procesar
+
+                      const isExcluded = !!item.excluded;
+
+                      return (
+                        <tr 
+                          key={item.tempId} 
+                          className={`hover:bg-slate-50 transition-colors ${isExcluded ? 'opacity-40 bg-slate-50/50' : ''}`}
+                        >
+                          {/* Toggle Excluded */}
+                          <td className="py-3 px-4 text-center">
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={(e) => {
+                                setImportPreview(prev => {
+                                  if (!prev) return null;
+                                  return prev.map(p => p.tempId === item.tempId ? { ...p, excluded: !e.target.checked } : p);
+                                });
+                              }}
+                              className="rounded border-slate-350 text-indigo-650 focus:ring-indigo-500 w-4.5 h-4.5 cursor-pointer"
+                            />
+                          </td>
+
+                          {/* Date */}
+                          <td className="py-3 px-4 whitespace-nowrap text-slate-550 font-bold">
+                            {new Date(item.date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          </td>
+
+                          {/* Description */}
+                          <td className="py-3 px-4 font-extrabold text-slate-800 max-w-[200px] sm:max-w-xs truncate" title={item.description}>
+                            {item.description}
+                          </td>
+
+                          {/* Amount */}
+                          <td className={`py-3 px-4 font-black whitespace-nowrap text-right pr-6 ${item.amount > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {item.amount > 0 ? '+' : '-'}${Math.abs(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                          </td>
+
+                          {/* Type Selector */}
+                          <td className="py-3 px-4">
+                            <select
+                              disabled={isExcluded}
+                              value={item.type}
+                              onChange={(e) => {
+                                const val = e.target.value as any;
+                                setImportPreview(prev => {
+                                  if (!prev) return null;
+                                  return prev.map(p => {
+                                    if (p.tempId === item.tempId) {
+                                      let cat = p.inferredCategory;
+                                      if (val === 'expense' && !p.inferredCategory) cat = 'otros';
+                                      return { ...p, type: val, inferredCategory: cat };
+                                    }
+                                    return p;
+                                  });
+                                });
+                              }}
+                              className="bg-white border border-slate-250 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-400 text-xs font-bold text-slate-700 cursor-pointer"
+                            >
+                              <option value="income">💰 Ingreso</option>
+                              <option value="expense">🛒 Compra / Gasto</option>
+                              <option value="service">🛠️ Servicio</option>
+                              <option value="ambiguous">⚠️ Ambiguo</option>
+                            </select>
+                          </td>
+
+                          {/* Category or Service Selection */}
+                          <td className="py-3 px-4">
+                            {item.type === 'expense' && (
+                              <select
+                                disabled={isExcluded}
+                                value={item.inferredCategory}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setImportPreview(prev => {
+                                    if (!prev) return null;
+                                    return prev.map(p => p.tempId === item.tempId ? { ...p, inferredCategory: val } : p);
+                                  });
+                                }}
+                                className="bg-white border border-slate-250 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-400 text-xs font-bold text-slate-700 cursor-pointer w-full"
+                              >
+                                {categories.map(c => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </select>
+                            )}
+
+                            {item.type === 'service' && (
+                              <select
+                                disabled={isExcluded}
+                                value={item.inferredService || 'Otro servicio'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setImportPreview(prev => {
+                                    if (!prev) return null;
+                                    return prev.map(p => p.tempId === item.tempId ? { ...p, inferredService: val } : p);
+                                  });
+                                }}
+                                className="bg-white border border-slate-250 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-400 text-xs font-bold text-slate-700 cursor-pointer w-full"
+                              >
+                                {serviceOptions.map(opt => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                            )}
+
+                            {(item.type === 'income' || item.type === 'ambiguous') && (
+                              <span className="text-slate-400 font-bold italic pl-2">N/A</span>
+                            )}
+                          </td>
+
+                          {/* Status Badge */}
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            {isExcluded ? (
+                              <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 font-extrabold text-[10px]">Excluido</span>
+                            ) : item.type === 'ambiguous' ? (
+                              <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-250 font-extrabold text-[10px]">Revisar</span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-250 font-extrabold text-[10px]">Listo</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="p-6 border-t border-slate-150 flex items-center justify-end gap-3 bg-slate-50 rounded-b-3xl shrink-0">
+              <button
+                onClick={() => setImportPreview(null)}
+                className="px-5 py-3 bg-slate-250 hover:bg-slate-300 text-slate-700 rounded-2xl text-xs font-extrabold cursor-pointer transition select-none"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  const valid = importPreview.filter(t => !t.isDuplicate && !t.excluded);
+                  const ambiguousCount = valid.filter(t => t.type === 'ambiguous').length;
+                  if (ambiguousCount > 0) {
+                    if (!confirm(`Tienes ${ambiguousCount} transacciones sin clasificar (Ambiguas). Se guardarán en la categoría "Otros/Varios". ¿Deseas continuar?`)) {
+                      return;
+                    }
+                  }
+                  handleConfirmImport(valid);
+                }}
+                className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-md cursor-pointer transition active:scale-97 select-none"
+              >
+                Confirmar e Importar ({importPreview.filter(t => !t.isDuplicate && !t.excluded).length} Transacciones)
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+      {isPlanningModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-in fade-in duration-200" role="dialog" aria-modal="true">
+          <div className="w-full max-w-2xl rounded-3xl bg-[#F8FAFC] shadow-2xl border border-slate-200 p-6 space-y-4 animate-in zoom-in duration-250 relative overflow-y-auto max-h-[90vh]">
+            <button 
+              onClick={() => setIsPlanningModalOpen(false)}
+              className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="border-b border-slate-100 pb-2">
+              <h2 className="text-base font-black text-slate-900">Planificar Nueva Compra</h2>
+            </div>
+            <AddItemForm 
+              onAddItem={(item) => {
+                handleAddItem(item);
+                setIsPlanningModalOpen(false);
+              }} 
+              existingPlaces={existingPlaces}
+              onAddPlace={handleAddPlace}
+              categories={categories}
+              onAddCategory={handleAddCategory}
+            />
+          </div>
+        </div>
+      )}
 
       <AIAssistant
         userName={userName}
