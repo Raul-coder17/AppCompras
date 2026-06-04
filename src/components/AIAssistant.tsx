@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { ShoppingItem, ArchivedItem, ServicePayment, Category, PaymentMethod, PREDEFINED_CATEGORIES, Income, MonthlyHistoryRecord, Apartado } from '../types';
 import AIAssistantSettings, { GEMINI_MODELS } from './AIAssistantSettings';
+import { buildDuplicateIndex, checkDuplicateTransaction } from '../utils/duplicateDetector';
 
 // Obfuscation helpers for API key storage (prevents casual plain-text exposure in localStorage)
 const encodeApiKey = (key: string): string => {
@@ -50,6 +51,14 @@ const loadApiKey = (): string => {
   return decodeApiKey(stored);
 };
 
+interface ToolCallState {
+  id: string;
+  name: string;
+  args: any;
+  status: 'pending' | 'approved' | 'rejected';
+  feedbackText?: string;
+}
+
 // Types for Chat Messages
 interface ChatMessage {
   id: string;
@@ -63,6 +72,7 @@ interface ChatMessage {
     args: any;
     status: 'pending' | 'approved' | 'rejected';
   };
+  toolCalls?: ToolCallState[];
 }
 
 interface AIAssistantProps {
@@ -94,7 +104,7 @@ interface AIAssistantProps {
   incomes?: Income[];
   monthlyHistory?: MonthlyHistoryRecord[];
   currentMonth?: string;
-  onAddIncome?: (incomeData: Omit<Income, 'id' | 'createdAt'>) => void;
+  onAddIncome?: (incomeData: Omit<Income, 'id' | 'createdAt'> & { createdAt?: string; externalId?: string }) => void;
   onDeleteIncome?: (id: string) => void;
 
   // Apartados addition
@@ -522,14 +532,45 @@ export default function AIAssistant({
     }
   };
 
-  // Handle image upload and conversion to base64
+  // Handle image upload, compress using Canvas (max 1024px, 80% JPEG quality) and convert to base64
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setSelectedImage(reader.result as string);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1024;
+        const MAX_HEIGHT = 1024;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+          setSelectedImage(compressedBase64);
+        } else {
+          setSelectedImage(reader.result as string);
+        }
+      };
+      img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
@@ -550,6 +591,10 @@ export default function AIAssistant({
     currentModel: string,
     attemptedModels: string[] = []
   ): Promise<{ responseData: any; modelUsed: string }> => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('Estás sin conexión a internet. Por favor, comprueba tu conexión antes de usar el asistente.');
+    }
+
     const modelToUse = currentModel;
     attemptedModels.push(modelToUse);
 
@@ -564,10 +609,20 @@ export default function AIAssistant({
     // Calculate real spending to get actual remaining free budget
     const cashSpentItems = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
     const cardSpentItems = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
-    const cashSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod === 'efectivo' ? curr.amount : 0), 0);
-    const cardSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod !== 'efectivo' ? curr.amount : 0), 0);
+    const currentMonthServices = servicePayments.filter(s => s.createdAt.startsWith(currentMonth));
+    const cashSpentServices = currentMonthServices.reduce((acc, curr) => acc + (curr.paymentMethod === 'efectivo' ? curr.amount : 0), 0);
+    const cardSpentServices = currentMonthServices.reduce((acc, curr) => acc + (curr.paymentMethod !== 'efectivo' ? curr.amount : 0), 0);
     const cashSpent = cashSpentItems + cashSpentServices;
     const cardSpent = cardSpentItems + cardSpentServices;
+
+    // De-duplicate recurring templates by name (case-insensitive) to avoid cluttering prompt context
+    const uniqueRecurringTemplates = Array.from(
+      new Map(
+        servicePayments
+          .filter(s => s.isRecurring)
+          .map(s => [s.service.toLowerCase(), s])
+      ).values()
+    );
 
     // Build current state payload for the system instructions
     const systemInstruction = `
@@ -580,12 +635,13 @@ Estado actual de la aplicación:
 - Mes activo actual: ${currentMonth} (${currMonthName})
 - Artículos planificados/comprados (ShoppingItem): ${JSON.stringify(items.map(i => ({ id: i.id, name: i.name, place: i.place, price: i.price, quantity: i.quantity, category: i.category, bought: i.bought, paymentMethod: i.paymentMethod, createdAt: i.createdAt })))}
 - Historial de artículos eliminados/archivados (ArchivedItem): ${JSON.stringify(archivedItems.map(a => ({ id: a.id, name: a.name, place: a.place, price: a.price, quantity: a.quantity, category: a.category, paymentMethod: a.paymentMethod, createdAt: a.createdAt, deletedAt: a.deletedAt })))}
-- Pagos de servicios (ServicePayment): ${JSON.stringify(servicePayments)}
+- Pagos de servicios registrados este mes (ServicePayment): ${JSON.stringify(currentMonthServices)}
+- Definición de servicios recurrentes activos (plantillas): ${JSON.stringify(uniqueRecurringTemplates.map(s => ({ service: s.service, amount: s.amount, paymentMethod: s.paymentMethod, recurringDay: s.recurringDay })))}
 - Ingresos de este mes (Income): ${JSON.stringify(incomes)}
 - Apartados de ahorro/resguardados activos (Apartado): ${JSON.stringify(apartados.map(a => ({ id: a.id, name: a.name, amount: a.amount, paymentMethod: a.paymentMethod })))}
 - Historial financiero de meses cerrados (MonthlyHistoryRecord): ${JSON.stringify(monthlyHistory.map(m => ({ monthId: m.monthId, summary: m.summary })))}
-- Presupuesto en efectivo inicial (antes de gastos): $${cashBudget}
-- Presupuesto en tarjeta/transferencia inicial (antes de gastos): $${cardBudget}
+- Presupuesto en efectivo asignado (excluyendo apartados, incluye ingresos extras): $${cashBudget}
+- Presupuesto en tarjeta/transferencia asignado (excluyendo apartados, incluye ingresos extras): $${cardBudget}
 - Presupuesto en efectivo libre disponible actual (ya descontando lo comprado y pagado): $${cashBudget - cashSpent}
 - Presupuesto en tarjeta/transferencia libre disponible actual (ya descontando lo comprado y pagado): $${cardBudget - cardSpent}
 - Total de capital libre disponible actual: $${(cashBudget - cashSpent) + (cardBudget - cardSpent)}
@@ -631,6 +687,9 @@ Reglas importantes:
       * Compras generales o envíos de dinero (ej. "- $160 Chipi", "Pago supermercado"): llama a \'add_item_proposed\' con \'bought = true\'.
       * Movimientos de apartados/ahorros (ej. "Monto retirado Ahorros", "Monto apartado Renta"): llama a \'withdraw_from_apartado_proposed\' o \'deposit_to_apartado_proposed\'.
     - Calcular y pasar la fecha real en el parámetro \'createdAt\'. Traduce expresiones de fecha relativas como "2 de junio" a una fecha completa ISO 8601 (YYYY-MM-DDTHH:MM:SS) o "YYYY-MM-DD" deduciendo el año del día de hoy (${new Date().getFullYear()}). Por ejemplo: "2 de junio" con hora "22:11" se convierte en "${new Date().getFullYear()}-06-02T22:11:00".
+14. PREVENCIÓN DE DUPLICADOS:
+    - Antes de sugerir registrar un gasto, servicio o ingreso, compáralo con los registros activos y el historial cerrado (MonthlyHistoryRecord).
+    - Si detectas que ya existe un registro con el mismo monto y un concepto similar en la misma fecha, adviértele amigablemente al usuario en tu mensaje de chat (ej. "⚠️ Veo que ya tienes registrado hoy un gasto por $X para Y, pero te presento la tarjeta por si fue un consumo distinto") al mismo tiempo que invocas la herramienta correspondiente.
 `;
 
     // Tools definition
@@ -943,7 +1002,58 @@ Reglas importantes:
             }
           });
         }
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+          msg.toolCalls.forEach(tc => {
+            parts.push({
+              functionCall: {
+                name: tc.name,
+                args: tc.args
+              }
+            });
+          });
+        }
         contents.push({ role: 'model', parts });
+
+        // Insert function response to satisfy the model context and API schema
+        const responseParts: any[] = [];
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+          msg.toolCalls.forEach(tc => {
+            responseParts.push({
+              functionResponse: {
+                name: tc.name,
+                response: {
+                  content: {
+                    status: tc.status,
+                    message: tc.status === 'approved' 
+                      ? 'Acción confirmada y guardada con éxito.' 
+                      : 'Acción rechazada por el usuario.'
+                  }
+                }
+              }
+            });
+          });
+        } else if (msg.toolCall) {
+          responseParts.push({
+            functionResponse: {
+              name: msg.toolCall.name,
+              response: {
+                content: {
+                  status: msg.toolCall.status,
+                  message: msg.toolCall.status === 'approved' 
+                    ? 'Acción confirmada y guardada con éxito.' 
+                    : 'Acción rechazada por el usuario.'
+                }
+              }
+            }
+          });
+        }
+
+        if (responseParts.length > 0) {
+          contents.push({
+            role: 'function',
+            parts: responseParts
+          });
+        }
       }
     });
 
@@ -1095,36 +1205,22 @@ Reglas importantes:
         if (loadingIdx === -1) return prev;
 
         const updated = [...prev];
-        const firstCall = functionCalls[0];
+
+        const mappedToolCalls = functionCalls.map((call, idx) => ({
+          id: `${assistantMessageId}-${idx}`,
+          name: call.name,
+          args: call.args,
+          status: 'pending' as const
+        }));
 
         updated[loadingIdx] = {
           id: assistantMessageId,
           sender: 'assistant',
           status: 'done',
           modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
-          text: modelResponseText || (firstCall ? `Tengo una propuesta basada en tu captura de Mercado Pago (1 de ${functionCalls.length}):` : 'Extraje la información, pero no se reconoció una acción específica para guardar.'),
-          toolCall: firstCall ? {
-            name: firstCall.name,
-            args: firstCall.args,
-            status: 'pending'
-          } : undefined
+          text: modelResponseText || (mappedToolCalls.length > 0 ? `He analizado tu captura de Mercado Pago y tengo las siguientes propuestas (${mappedToolCalls.length}):` : 'Extraje la información, pero no se reconoció una acción específica para guardar.'),
+          toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined
         };
-
-        for (let i = 1; i < functionCalls.length; i++) {
-          const call = functionCalls[i];
-          updated.push({
-            id: `assistant-${Date.now()}-${i}`,
-            sender: 'assistant',
-            status: 'done',
-            modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
-            text: `Tengo otra propuesta basada en tu captura (${i + 1} de ${functionCalls.length}):`,
-            toolCall: {
-              name: call.name,
-              args: call.args,
-              status: 'pending'
-            }
-          });
-        }
 
         return updated;
       });
@@ -1239,36 +1335,22 @@ Reglas importantes:
         if (loadingIdx === -1) return prev;
 
         const updated = [...prev];
-        const firstCall = functionCalls[0];
+
+        const mappedToolCalls = functionCalls.map((call, idx) => ({
+          id: `${assistantMessageId}-${idx}`,
+          name: call.name,
+          args: call.args,
+          status: 'pending' as const
+        }));
 
         updated[loadingIdx] = {
           id: assistantMessageId,
           sender: 'assistant',
           status: 'done',
           modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
-          text: modelResponseText || (firstCall ? `Tengo una propuesta para ti (1 de ${functionCalls.length}):` : 'Entendido. Si tienes alguna duda, dime.'),
-          toolCall: firstCall ? {
-            name: firstCall.name,
-            args: firstCall.args,
-            status: 'pending'
-          } : undefined
+          text: modelResponseText || (mappedToolCalls.length > 0 ? `Tengo ${mappedToolCalls.length} propuestas para ti:` : 'Entendido. Si tienes alguna duda, dime.'),
+          toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined
         };
-
-        for (let i = 1; i < functionCalls.length; i++) {
-          const call = functionCalls[i];
-          updated.push({
-            id: `assistant-${Date.now()}-${i}`,
-            sender: 'assistant',
-            status: 'done',
-            modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
-            text: `Tengo otra propuesta (${i + 1} de ${functionCalls.length}):`,
-            toolCall: {
-              name: call.name,
-              args: call.args,
-              status: 'pending'
-            }
-          });
-        }
 
         return updated;
       });
@@ -1341,36 +1423,22 @@ Reglas importantes:
         if (errIdx === -1) return prev;
 
         const updated = [...prev];
-        const firstCall = functionCalls[0];
+
+        const mappedToolCalls = functionCalls.map((call, idx) => ({
+          id: `${errorMessageId}-${idx}`,
+          name: call.name,
+          args: call.args,
+          status: 'pending' as const
+        }));
 
         updated[errIdx] = {
           id: errorMessageId,
           sender: 'assistant',
           status: 'done',
           modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
-          text: modelResponseText || (firstCall ? `Tengo una propuesta para ti (1 de ${functionCalls.length}):` : 'Entendido. Si tienes alguna duda, dime.'),
-          toolCall: firstCall ? {
-            name: firstCall.name,
-            args: firstCall.args,
-            status: 'pending'
-          } : undefined
+          text: modelResponseText || (mappedToolCalls.length > 0 ? `Tengo ${mappedToolCalls.length} propuestas para ti:` : 'Entendido. Si tienes alguna duda, dime.'),
+          toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined
         };
-
-        for (let i = 1; i < functionCalls.length; i++) {
-          const call = functionCalls[i];
-          updated.push({
-            id: `assistant-${Date.now()}-${i}`,
-            sender: 'assistant',
-            status: 'done',
-            modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
-            text: `Tengo otra propuesta (${i + 1} de ${functionCalls.length}):`,
-            toolCall: {
-              name: call.name,
-              args: call.args,
-              status: 'pending'
-            }
-          });
-        }
 
         return updated;
       });
@@ -1533,13 +1601,22 @@ Reglas importantes:
   };
 
   // Human-in-the-loop: Confirm or Reject Card Actions
-  const handleConfirmTool = (messageId: string, customArgs: any) => {
+  const handleConfirmTool = (messageId: string, toolCallId: string, customArgs: any) => {
     const message = messages.find(m => m.id === messageId);
-    if (!message || !message.toolCall) return;
+    if (!message) return;
+
+    let targetToolCall = null;
+    if (message.toolCalls) {
+      targetToolCall = message.toolCalls.find(tc => tc.id === toolCallId);
+    } else if (message.toolCall) {
+      targetToolCall = message.toolCall;
+    }
+
+    if (!targetToolCall) return;
 
     let feedbackText = '';
-    const toolName = message.toolCall.name;
-    const finalArgs = customArgs || message.toolCall.args;
+    const toolName = targetToolCall.name;
+    const finalArgs = customArgs || targetToolCall.args;
 
     try {
       if (toolName === 'add_item_proposed') {
@@ -1687,16 +1764,33 @@ Reglas importantes:
       // Mark tool as approved and update message feedback
       setMessages(prev =>
         prev.map(msg => {
-          if (msg.id === messageId && msg.toolCall) {
-            return {
-              ...msg,
-              text: feedbackText,
-              toolCall: {
-                ...msg.toolCall,
-                status: 'approved',
-                args: finalArgs // save final corrected parameters
-              }
-            };
+          if (msg.id === messageId) {
+            if (msg.toolCalls) {
+              return {
+                ...msg,
+                toolCalls: msg.toolCalls.map(tc => {
+                  if (tc.id === toolCallId) {
+                    return {
+                      ...tc,
+                      status: 'approved',
+                      args: finalArgs, // save final corrected parameters
+                      feedbackText: feedbackText
+                    };
+                  }
+                  return tc;
+                })
+              };
+            } else if (msg.toolCall) {
+              return {
+                ...msg,
+                text: feedbackText,
+                toolCall: {
+                  ...msg.toolCall,
+                  status: 'approved',
+                  args: finalArgs // save final corrected parameters
+                }
+              };
+            }
           }
           return msg;
         })
@@ -1708,18 +1802,33 @@ Reglas importantes:
     }
   };
 
-  const handleRejectTool = (messageId: string) => {
+  const handleRejectTool = (messageId: string, toolCallId: string) => {
     setMessages(prev =>
       prev.map(msg => {
-        if (msg.id === messageId && msg.toolCall) {
-          return {
-            ...msg,
-            text: 'Acción rechazada y cancelada por el usuario.',
-            toolCall: {
-              ...msg.toolCall,
-              status: 'rejected'
-            }
-          };
+        if (msg.id === messageId) {
+          if (msg.toolCalls) {
+            return {
+              ...msg,
+              toolCalls: msg.toolCalls.map(tc => {
+                if (tc.id === toolCallId) {
+                  return {
+                    ...tc,
+                    status: 'rejected'
+                  };
+                }
+                return tc;
+              })
+            };
+          } else if (msg.toolCall) {
+            return {
+              ...msg,
+              text: 'Acción rechazada y cancelada por el usuario.',
+              toolCall: {
+                ...msg.toolCall,
+                status: 'rejected'
+              }
+            };
+          }
         }
         return msg;
       })
@@ -1924,15 +2033,17 @@ Reglas importantes:
                         </div>
                       )}
 
-                      {/* HUMAN IN THE LOOP CONFIRMATION CARDS */}
+                      {/* SINGLE TOOLCALL (Backward Compatibility) */}
                       {msg.toolCall && msg.toolCall.status === 'pending' && (
                         <div className="w-full mt-2 select-none animate-in zoom-in duration-200">
                           <ConfirmationCard
+                            key={`${msg.id}-${JSON.stringify(msg.toolCall.args)}`}
                             messageId={msg.id}
+                            toolCallId="single"
                             toolName={msg.toolCall.name}
                             initialArgs={msg.toolCall.args}
-                            onConfirm={handleConfirmTool}
-                            onReject={handleRejectTool}
+                            onConfirm={(msgId, tcId, args) => handleConfirmTool(msgId, tcId, args)}
+                            onReject={(msgId, tcId) => handleRejectTool(msgId, tcId)}
                             categories={categories}
                             items={items}
                             apartados={apartados}
@@ -1956,6 +2067,55 @@ Reglas importantes:
                           <span>Cancelado</span>
                         </div>
                       )}
+
+                      {/* MULTIPLE TOOLCALLS (Parallel Tool Calling) */}
+                      {msg.toolCalls && msg.toolCalls.map((tc) => (
+                        <div key={tc.id} className="w-full mt-2 select-none animate-in zoom-in duration-200">
+                          {tc.status === 'pending' && (
+                            <ConfirmationCard
+                              key={`${tc.id}-${JSON.stringify(tc.args)}`}
+                              messageId={msg.id}
+                              toolCallId={tc.id}
+                              toolName={tc.name}
+                              initialArgs={tc.args}
+                              onConfirm={handleConfirmTool}
+                              onReject={handleRejectTool}
+                              categories={categories}
+                              items={items}
+                              apartados={apartados}
+                              servicePayments={servicePayments}
+                              incomes={incomes}
+                              monthlyHistory={monthlyHistory}
+                            />
+                          )}
+
+                          {tc.status === 'approved' && (
+                            <div className="flex flex-col gap-1 bg-emerald-50 p-2.5 border border-emerald-100 text-emerald-800 text-[11px] rounded-xl font-semibold select-none shadow-3xs">
+                              <div className="flex items-center gap-1.5 font-extrabold text-emerald-900">
+                                <Check className="w-4 h-4 stroke-[2.5] text-emerald-600" />
+                                <span>Acción Aprobada y Guardada</span>
+                              </div>
+                              {tc.feedbackText && (
+                                <p className="text-[10px] text-emerald-700 mt-0.5 leading-normal">
+                                  {tc.feedbackText}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {tc.status === 'rejected' && (
+                            <div className="flex flex-col gap-1 bg-slate-50 p-2.5 border border-slate-200 text-slate-500 text-[11px] rounded-xl font-semibold select-none shadow-3xs">
+                              <div className="flex items-center gap-1.5 font-extrabold text-slate-700">
+                                <X className="w-4 h-4 text-slate-500" />
+                                <span>Cancelado</span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5 leading-normal">
+                                Acción rechazada y cancelada por el usuario.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
 
                     </div>
                   ))}
@@ -2134,7 +2294,9 @@ Reglas importantes:
 // CONFIRMATION CARDS (Human-in-the-loop validation)
 // ---------------------------------------------------------
 interface ConfirmationCardProps {
+  key?: string;
   messageId: string;
+  toolCallId: string;
   toolName: string;
   initialArgs: any;
   categories: Category[];
@@ -2143,12 +2305,13 @@ interface ConfirmationCardProps {
   servicePayments?: ServicePayment[];
   incomes?: Income[];
   monthlyHistory?: MonthlyHistoryRecord[];
-  onConfirm: (messageId: string, customArgs: any) => void;
-  onReject: (messageId: string) => void;
+  onConfirm: (messageId: string, toolCallId: string, customArgs: any) => void;
+  onReject: (messageId: string, toolCallId: string) => void;
 }
 
 function ConfirmationCard({
   messageId,
+  toolCallId,
   toolName,
   initialArgs,
   categories,
@@ -2259,23 +2422,12 @@ function ConfirmationCard({
 
   const [paymentMethodMissing, setPaymentMethodMissing] = useState(false);
 
+  // Build the duplicate index once per render
+  const dupIndex = React.useMemo(() => {
+    return buildDuplicateIndex(items, servicePayments, incomes || [], monthlyHistory || []);
+  }, [items, servicePayments, incomes, monthlyHistory]);
+
   const checkDuplicate = () => {
-    const existingIds = new Set<string>();
-    items.forEach(i => i.externalId && existingIds.add(i.externalId));
-    servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
-    incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
-    monthlyHistory.forEach(h => {
-      h.items.forEach(i => i.externalId && existingIds.add(i.externalId));
-      h.servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
-      h.incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
-    });
-
-    const externalId = editedArgs.externalId;
-    if (externalId && existingIds.has(externalId)) {
-      return { type: 'exact', details: `Transacción ya registrada con ID: ${externalId}` };
-    }
-
-    // Fuzzy check
     let name = '';
     let amount = 0;
     if (toolName === 'add_item_proposed') {
@@ -2287,43 +2439,18 @@ function ConfirmationCard({
     } else if (toolName === 'add_income_proposed') {
       name = editedArgs.name || '';
       amount = Number(editedArgs.amount) || 0;
+    } else {
+      return null;
     }
 
     if (!name || !amount) return null;
 
-    const dateStr = (editedArgs.createdAt || new Date().toISOString()).slice(0, 10);
-    const toDateStr = (iso: string) => iso.slice(0, 10);
-    const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').trim();
-
-    const targetNorm = normalize(name);
-    const targetWords = targetNorm.split(/\s+/).filter(w => w.length >= 3);
-    const absAmount = Math.abs(amount);
-
-    const fuzzyIndex: { name: string; amount: number; dateStr: string; source: string }[] = [];
-    
-    items.forEach(i => {
-      fuzzyIndex.push({ name: normalize(i.name), amount: i.price * i.quantity, dateStr: toDateStr(i.createdAt), source: `Compra: ${i.name} ($${(i.price * i.quantity).toFixed(2)})` });
-    });
-    servicePayments.forEach(s => {
-      fuzzyIndex.push({ name: normalize(s.service), amount: s.amount, dateStr: toDateStr(s.createdAt), source: `Servicio: ${s.service} ($${s.amount.toFixed(2)})` });
-    });
-    incomes.forEach(inc => {
-      fuzzyIndex.push({ name: normalize(inc.name), amount: inc.amount, dateStr: toDateStr(inc.createdAt), source: `Ingreso: ${inc.name} ($${inc.amount.toFixed(2)})` });
-    });
-
-    for (const entry of fuzzyIndex) {
-      if (entry.dateStr !== dateStr) continue;
-      const amountDiff = Math.abs(entry.amount - absAmount);
-      if (amountDiff > absAmount * 0.02 && amountDiff > 0.01) continue;
-      
-      const entryWords = entry.name.split(/\s+/).filter(w => w.length >= 3);
-      const hasCommonWord = targetWords.some(cw => entryWords.some(ew => ew.includes(cw) || cw.includes(ew)));
-      if (hasCommonWord || amountDiff < 0.01) {
-        return { type: 'fuzzy', details: entry.source };
-      }
-    }
-
-    return null;
+    return checkDuplicateTransaction({
+      name,
+      amount,
+      date: editedArgs.createdAt || new Date(),
+      externalId: editedArgs.externalId
+    }, dupIndex);
   };
 
   const duplicateStatus = checkDuplicate();
@@ -2335,7 +2462,7 @@ function ConfirmationCard({
         setPaymentMethodMissing(true);
         return;
       }
-      onConfirm(messageId, editedArgs);
+      onConfirm(messageId, toolCallId, editedArgs);
     }
     else if (toolName === 'add_multiple_items_proposed') {
       const itemsList = editedArgs.items as any[];
@@ -2344,38 +2471,38 @@ function ConfirmationCard({
         setPaymentMethodMissing(true);
         return;
       }
-      onConfirm(messageId, editedArgs);
+      onConfirm(messageId, toolCallId, editedArgs);
     }
     else if (toolName === 'add_service_proposed') {
       if (!editedArgs.paymentMethod) {
         setPaymentMethodMissing(true);
         return;
       }
-      onConfirm(messageId, editedArgs);
+      onConfirm(messageId, toolCallId, editedArgs);
     }
     else if (toolName === 'update_item_proposed') {
       if (!editedArgs.paymentMethod) {
         setPaymentMethodMissing(true);
         return;
       }
-      onConfirm(messageId, editedArgs);
+      onConfirm(messageId, toolCallId, editedArgs);
     }
     else if (toolName === 'add_income_proposed') {
       if (!editedArgs.paymentMethod) {
         setPaymentMethodMissing(true);
         return;
       }
-      onConfirm(messageId, editedArgs);
+      onConfirm(messageId, toolCallId, editedArgs);
     }
     else if (toolName === 'add_apartado_proposed') {
       if (!editedArgs.paymentMethod) {
         setPaymentMethodMissing(true);
         return;
       }
-      onConfirm(messageId, editedArgs);
+      onConfirm(messageId, toolCallId, editedArgs);
     }
     else {
-      onConfirm(messageId, editedArgs);
+      onConfirm(messageId, toolCallId, editedArgs);
     }
   };
 
@@ -2518,7 +2645,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -2714,7 +2841,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -2895,7 +3022,7 @@ function ConfirmationCard({
                 type="button"
                 onClick={() => handleBulkBoughtChange(false)}
                 className={`flex-grow py-1 border text-[10px] font-bold rounded-lg transition-colors cursor-pointer ${list.every(i => !i.bought)
-                    ? 'bg-amber-50 border-amber-250 text-amber-700'
+                    ? 'bg-amber-50 border-amber-200 text-amber-700'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                   }`}
               >
@@ -2907,110 +3034,144 @@ function ConfirmationCard({
 
         {/* Scrollable list of items to approve */}
         <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-          {list.map((item, idx) => (
-            <div key={idx} className="p-3 bg-slate-50/70 border border-slate-100 rounded-xl relative space-y-2 group">
-              {/* Delete item button */}
-              <button
-                type="button"
-                onClick={() => handleDeleteItemFromList(idx)}
-                className="absolute top-2 right-2 p-1 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg border border-slate-200 hover:border-rose-100 transition cursor-pointer"
-                title="Eliminar artículo de la propuesta"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+          {list.map((item, idx) => {
+            const itemCheck = checkDuplicateTransaction({
+              name: item.name || '',
+              amount: Number(item.price) * (Number(item.quantity) || 1),
+              date: editedArgs.createdAt || new Date(),
+              externalId: item.externalId
+            }, dupIndex);
 
-              {/* Title Input */}
-              <div className="pr-7">
-                <input
-                  type="text"
-                  value={item.name}
-                  onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
-                  className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-slate-400 focus:outline-none text-xs font-bold text-slate-700"
-                />
-              </div>
+            return (
+              <div key={idx} className={`p-3 border rounded-xl relative space-y-2 group transition-all duration-200 ${
+                itemCheck 
+                  ? itemCheck.type === 'exact' 
+                    ? 'bg-rose-50/45 border-rose-250 hover:border-rose-350' 
+                    : 'bg-orange-50/45 border-orange-250 hover:border-orange-350'
+                  : 'bg-slate-50/70 border-slate-100 hover:border-slate-200'
+              }`}>
+                {/* Delete item button */}
+                <button
+                  type="button"
+                  onClick={() => handleDeleteItemFromList(idx)}
+                  className="absolute top-2 right-2 p-1 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg border border-slate-200 hover:border-rose-100 transition cursor-pointer z-10"
+                  title="Eliminar artículo de la propuesta"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
 
-              {/* Grid with parameters */}
-              <div className={`grid gap-1.5 items-end ${isTotalMode ? 'grid-cols-3' : 'grid-cols-4'}`}>
-                {/* Price — only show in individual mode */}
-                {!isTotalMode && (
+                {/* Title Input */}
+                <div className="pr-7">
+                  <input
+                    type="text"
+                    value={item.name}
+                    onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
+                    className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-slate-400 focus:outline-none text-xs font-bold text-slate-700"
+                  />
+                </div>
+
+                {/* Grid with parameters */}
+                <div className={`grid gap-1.5 items-end ${isTotalMode ? 'grid-cols-3' : 'grid-cols-4'}`}>
+                  {/* Price — only show in individual mode */}
+                  {!isTotalMode && (
+                    <div className="col-span-1">
+                      <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Precio ($)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.price}
+                        onChange={(e) => handleItemChange(idx, 'price', parseFloat(e.target.value) || 0)}
+                        className="w-full px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-700"
+                      />
+                    </div>
+                  )}
+                  {/* In total mode, show the distributed portion (read-only) */}
+                  {isTotalMode && (
+                    <div className="col-span-1">
+                      <label className="block text-[8px] font-bold text-purple-400 uppercase tracking-wider mb-0.5">Porción ($)</label>
+                      <div className="w-full px-1.5 py-0.5 bg-purple-50 border border-purple-100 rounded text-[10px] text-purple-700 font-bold">
+                        ${Number(item.price).toFixed(2)}
+                      </div>
+                    </div>
+                  )}
+                  {/* Qty */}
                   <div className="col-span-1">
-                    <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Precio ($)</label>
+                    <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Cant.</label>
                     <input
                       type="number"
-                      step="0.01"
-                      value={item.price}
-                      onChange={(e) => handleItemChange(idx, 'price', parseFloat(e.target.value) || 0)}
+                      value={item.quantity}
+                      onChange={(e) => handleItemChange(idx, 'quantity', parseInt(e.target.value) || 1)}
                       className="w-full px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-700"
                     />
                   </div>
-                )}
-                {/* In total mode, show the distributed portion (read-only) */}
-                {isTotalMode && (
+                  {/* Category */}
                   <div className="col-span-1">
-                    <label className="block text-[8px] font-bold text-purple-400 uppercase tracking-wider mb-0.5">Porción ($)</label>
-                    <div className="w-full px-1.5 py-0.5 bg-purple-50 border border-purple-100 rounded text-[10px] text-purple-700 font-bold">
-                      ${Number(item.price).toFixed(2)}
+                    <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Categoría</label>
+                    <select
+                      value={item.category}
+                      onChange={(e) => handleItemChange(idx, 'category', e.target.value)}
+                      className="w-full px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-700 cursor-pointer"
+                    >
+                      {categories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Payment Method / Bought Status */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100/50">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Pago:</span>
+                    <select
+                      value={item.paymentMethod || ''}
+                      onChange={(e) => handleItemChange(idx, 'paymentMethod', e.target.value)}
+                      className={`px-1.5 py-0.5 bg-white border rounded text-[10px] text-slate-700 font-semibold cursor-pointer ${paymentMethodMissing && !item.paymentMethod
+                          ? 'border-rose-400 bg-rose-50'
+                          : 'border-slate-200'
+                        }`}
+                    >
+                      <option value="">-- Elige --</option>
+                      <option value="efectivo">Efectivo</option>
+                      <option value="tarjeta">Tarjeta</option>
+                      <option value="transferencia">Transferencia</option>
+                    </select>
+                  </div>
+
+                  {/* State Checkbox */}
+                  <button
+                    type="button"
+                    onClick={() => handleItemChange(idx, 'bought', !item.bought)}
+                    className={`px-2 py-0.5 rounded border text-[9px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${item.bought
+                        ? 'bg-emerald-50 border-emerald-250 text-emerald-700'
+                        : 'bg-amber-50 border-amber-250 text-amber-700'
+                      }`}
+                  >
+                    <span>{item.bought ? 'Comprado' : 'Pendiente'}</span>
+                  </button>
+                </div>
+
+                {/* Inline Duplicate Warning Badge */}
+                {itemCheck && (
+                  <div className={`mt-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] leading-snug font-semibold flex items-start gap-1.5 ${
+                    itemCheck.type === 'exact' 
+                      ? 'bg-rose-50 border-rose-100 text-rose-800 animate-in slide-in-from-bottom-1 duration-150' 
+                      : 'bg-orange-50 border-orange-100 text-orange-850 animate-in slide-in-from-bottom-1 duration-150'
+                  }`}>
+                    <AlertCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                      itemCheck.type === 'exact' ? 'text-rose-500' : 'text-orange-500'
+                    }`} />
+                    <div>
+                      <span className="font-extrabold">
+                        {itemCheck.type === 'exact' ? 'Duplicado Exacto' : 'Posible Duplicado'}:
+                      </span>{' '}
+                      <span>{itemCheck.type === 'exact' ? 'Ya registrado en la base de datos.' : `Similar a ${itemCheck.details}`}</span>
                     </div>
                   </div>
                 )}
-                {/* Qty */}
-                <div className="col-span-1">
-                  <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Cant.</label>
-                  <input
-                    type="number"
-                    value={item.quantity}
-                    onChange={(e) => handleItemChange(idx, 'quantity', parseInt(e.target.value) || 1)}
-                    className="w-full px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-700"
-                  />
-                </div>
-                {/* Category */}
-                <div className="col-span-1">
-                  <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Categoría</label>
-                  <select
-                    value={item.category}
-                    onChange={(e) => handleItemChange(idx, 'category', e.target.value)}
-                    className="w-full px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-700 cursor-pointer"
-                  >
-                    {categories.map(cat => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
               </div>
-
-              {/* Payment Method / Bought Status */}
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100/50">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Pago:</span>
-                  <select
-                    value={item.paymentMethod || ''}
-                    onChange={(e) => handleItemChange(idx, 'paymentMethod', e.target.value)}
-                    className={`px-1.5 py-0.5 bg-white border rounded text-[10px] text-slate-700 font-semibold cursor-pointer ${paymentMethodMissing && !item.paymentMethod
-                        ? 'border-rose-400 bg-rose-50'
-                        : 'border-slate-200'
-                      }`}
-                  >
-                    <option value="">-- Elige --</option>
-                    <option value="efectivo">Efectivo</option>
-                    <option value="tarjeta">Tarjeta</option>
-                    <option value="transferencia">Transferencia</option>
-                  </select>
-                </div>
-
-                {/* State Checkbox */}
-                <button
-                  type="button"
-                  onClick={() => handleItemChange(idx, 'bought', !item.bought)}
-                  className={`px-2 py-0.5 rounded border text-[9px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${item.bought
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      : 'bg-amber-50 border-amber-200 text-amber-700'
-                    }`}
-                >
-                  <span>{item.bought ? 'Comprado' : 'Pendiente'}</span>
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {paymentMethodMissing && list.some(i => !i.paymentMethod) && (
@@ -3023,7 +3184,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-100">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -3196,7 +3357,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -3332,7 +3493,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -3420,7 +3581,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -3486,7 +3647,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -3553,7 +3714,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-655 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Rechazar
@@ -3612,7 +3773,7 @@ function ConfirmationCard({
         {/* Buttons */}
         <div className="flex gap-2 pt-2 border-t border-slate-50">
           <button
-            onClick={() => onReject(messageId)}
+            onClick={() => onReject(messageId, toolCallId)}
             className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
           >
             Cancelar
@@ -3700,13 +3861,13 @@ function ConfirmationCard({
 
       <div className="flex gap-2 pt-2 border-t border-slate-50">
         <button
-          onClick={() => onReject(messageId)}
+          onClick={() => onReject(messageId, toolCallId)}
           className="flex-grow py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition"
         >
           Cancelar
         </button>
         <button
-          onClick={() => onConfirm(messageId, editedArgs)}
+          onClick={() => onConfirm(messageId, toolCallId, editedArgs)}
           className="flex-grow py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs"
         >
           Confirmar Cambio

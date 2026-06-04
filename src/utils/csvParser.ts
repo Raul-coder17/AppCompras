@@ -233,8 +233,14 @@ export function parseMercadoPagoCSV(csvText: string): ParsedMPTransaction[] {
 
     // Extraer datos primarios
     const rawDate = columns[dateIdx];
-    const rawId = idIdx !== -1 ? columns[idIdx] : `mp-hash-${Date.now()}-${i}`;
     const rawDesc = descIdx !== -1 ? columns[descIdx] : 'Transacción Mercado Pago';
+    let rawId = '';
+    if (idIdx !== -1 && columns[idIdx] && columns[idIdx].trim()) {
+      rawId = columns[idIdx].trim();
+    } else {
+      const cleanDesc = rawDesc.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      rawId = `mp-det-${rawDate || 'nodate'}-${cleanDesc}-${i}`;
+    }
     const rawStatus = statusIdx !== -1 ? columns[statusIdx].toLowerCase() : 'approved';
 
     // Omitir transacciones rechazadas o canceladas si el estado está explícito

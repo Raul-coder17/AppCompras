@@ -4,8 +4,9 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Wallet, Receipt, Plus, Trash2, Info } from 'lucide-react';
+import { CreditCard, Wallet, Receipt, Plus, Trash2, Info, AlertCircle } from 'lucide-react';
 import { PAYMENT_METHODS, ServicePayment } from '../types';
+import { buildDuplicateIndex, checkDuplicateTransaction } from '../utils/duplicateDetector';
 
 interface ServicePaymentsProps {
   payments: ServicePayment[];
@@ -13,6 +14,9 @@ interface ServicePaymentsProps {
   onAddPayment: (payment: Omit<ServicePayment, 'id' | 'createdAt'>) => void;
   onDeletePayment: (id: string) => void;
   onAddService: (name: string) => void;
+  items: any[];
+  incomes: any[];
+  monthlyHistory: any[];
 }
 
 export default function ServicePayments({
@@ -20,7 +24,10 @@ export default function ServicePayments({
   services,
   onAddPayment,
   onDeletePayment,
-  onAddService
+  onAddService,
+  items,
+  incomes,
+  monthlyHistory
 }: ServicePaymentsProps) {
   const [selectedService, setSelectedService] = useState(services[0] || '');
   const [amountInput, setAmountInput] = useState('');
@@ -47,6 +54,22 @@ export default function ServicePayments({
     const card = total - cash;
     return { total, cash, card };
   }, [payments]);
+
+  const dupIndex = useMemo(() => {
+    return buildDuplicateIndex(items, payments, incomes, monthlyHistory);
+  }, [items, payments, incomes, monthlyHistory]);
+
+  const duplicateCheck = useMemo(() => {
+    if (!selectedService.trim()) return null;
+    const amount = parseFloat(amountInput) || 0;
+    if (amount <= 0) return null;
+
+    return checkDuplicateTransaction({
+      name: selectedService.trim(),
+      amount,
+      date: new Date()
+    }, dupIndex);
+  }, [selectedService, amountInput, dupIndex]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,10 +202,32 @@ export default function ServicePayments({
                   </option>
                 ))}
               </select>
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs">▼</span>
-            </div>
+            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs">▼</span>
           </div>
         </div>
+      </div>
+
+      {duplicateCheck && (
+          <div className={`p-3.5 rounded-2xl border text-xs leading-relaxed font-semibold flex items-start gap-2.5 ${
+            duplicateCheck.type === 'exact' 
+              ? 'bg-rose-50 border-rose-100 text-rose-800 animate-in fade-in duration-200' 
+              : 'bg-orange-50 border-orange-100 text-orange-855 animate-in fade-in duration-200'
+          }`}>
+            <AlertCircle className={`w-4.5 h-4.5 shrink-0 mt-0.5 ${
+              duplicateCheck.type === 'exact' ? 'text-rose-500' : 'text-orange-500'
+            }`} />
+            <div>
+              <span className="font-extrabold">
+                {duplicateCheck.type === 'exact' ? '⚠️ Servicio ya registrado' : '⚠️ Posible Servicio Duplicado'}:
+              </span>{' '}
+              <span>
+                {duplicateCheck.type === 'exact' 
+                  ? 'Este pago de servicio ya está registrado con los mismos datos en tu base de datos de hoy.' 
+                  : `Encontramos una transacción similar registrada hoy: ${duplicateCheck.details}`}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Recurrence Options */}
         <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-3">

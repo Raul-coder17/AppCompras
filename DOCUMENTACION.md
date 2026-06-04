@@ -221,15 +221,24 @@ export interface Apartado {
 
 **SpendWise Pro** está construida sobre una pila moderna enfocada en la velocidad y el diseño táctil premium:
 
-1. **React 19 & TypeScript 5:** Permite renderizado declarativo ultrarrápido sin desbordamientos de memoria.
-2. **Tailwind CSS v4 & Glassmorphism:** Estilos JIT ultra-optimizados que reducen el peso de las hojas de estilos CSS a pocos kilobytes, implementando tarjetas de vidrio esmerilado con la propiedad nativa `backdrop-blur-md` e iluminación sutil mediante HSL dinámicos.
-3. **Cascada de Modelos en IA (Gemini Cascade Orchestration):**
-   El asistente implementa una lógica en cascada en caso de cuotas agotadas (`HTTP 429`) en servidores gratuitos, rotando automáticamente en milisegundos:
-   $$\text{gemini-2.5-flash} \longrightarrow \text{gemini-2.0-flash} \longrightarrow \text{gemini-1.5-flash} \longrightarrow \text{gemini-2.5-pro} \longrightarrow \text{gemini-1.5-pro}$$
-4. **Monitoreo y Control de Cuota de Gemini (Prevención de Abuso):**
-   La plataforma calcula de forma reactiva el número de llamadas del último minuto (RPM) y del último día (RPD) utilizando un historial persistido en la memoria del celular (`localStorage`), adaptando sus medidores en vivo y mostrando alertas amigables o deshabilitando temporalmente el chat si el usuario se acerca a los límites de consumo del plan gratuito de Google AI Studio.
-5. **Instalación como Aplicación Web Progresiva (PWA):**
-   Equipada con Service Workers vía `vite-plugin-pwa`. Permite el almacenamiento en caché local de todos los íconos, tipografías y lógica para que la aplicación funcione **100% offline** (sin conexión a internet), permitiendo registrar compras en sótanos de centros comerciales o supermercados sin señal y sincronizándose al recuperar conexión.
+1. **Lenguajes Core:**
+   * **TypeScript (~5.8.2):** Lenguaje principal. Sustituye a JavaScript básico definiendo el tipado robusto de todos los datos internos (artículos, apartados, transacciones), brindando máxima seguridad y evadiendo errores en tiempo de ejecución de la interfaz.
+   * **HTML5 / CSS3:** Base clásica requerida para renderizado web semántico.
+2. **Framework de Interfaz y Lógica (UI):**
+   * **React 19 (`react` / `react-dom`):** El motor central y librería base de componentes. Permite renderizado declarativo ultrarrápido y un manejo de estado fluido global, eliminando las molestas recargas de página (Arquitectura SPA).
+3. **Motor de Empaquetado de Construcción:**
+   * **Vite 6:** Utilizado como servidor de entorno de desarrollo (extremadamente rápido por el uso del motor `esbuild`) y empaquetador del proyecto (bundler).
+4. **Diseño, Animaciones e Íconos:**
+   * **Tailwind CSS v4 & Glassmorphism:** Motor de diseño mediante clases (utility-first). Produce CSS JIT de pocos kilobytes y soporta efectos premium (`backdrop-blur-md`, texturas esmeriladas).
+   * **Motion (`motion` / famer-motion):** Módulo encargado de todas las secuencias animadas fluidas de los modales, cortinas de contenido y transiciones, para una experiencia que rivaliza con apps nativas de iOS o Android.
+   * **Lucide React:** Biblioteca de íconos escalables en formato SVG.
+5. **Inteligencia Artificial y Motores IA:**
+   * **Google Gemini API (`@google/genai`):** La plataforma base de IA multimodal que decodifica fotos y texto de usuarios.
+   * **Cascada de Modelos en IA:** Entorno robusto contra topes de cuotas (HTTP 429), iterando en jerarquía:
+     $$\text{gemini-2.5-flash} \longrightarrow \text{gemini-2.0-flash} \longrightarrow \text{gemini-1.5-flash} \longrightarrow \text{gemini-2.5-pro} \longrightarrow \text{gemini-1.5-pro}$$
+   * **Monitoreo Local de Cuotas:** Un sistema que mide en caliente las llamadas a la IA (Tokens, RPM y RPD) apoyándose en la base de datos `localStorage`.
+6. **Tecnologías de Soporte Offline (PWA):**
+   * **Vite-plugin-PWA:** Inyección técnica de Service Workers. Facilita los escudos **100% offline**, permitiendo que SpendWise Pro funcione en teléfonos sin conexión (como adentro de un supermercado) y guarde un marco en la caché del entorno.
 
 ---
 

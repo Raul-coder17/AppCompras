@@ -43,6 +43,7 @@ import IncomesManager from './components/IncomesManager';
 import MonthCloseWizard from './components/MonthCloseWizard';
 import MonthlyHistory from './components/MonthlyHistory';
 import { parseMercadoPagoCSV } from './utils/csvParser';
+import { buildDuplicateIndex, checkDuplicateTransaction } from './utils/duplicateDetector';
 
 // Initial demo data to showcase calculating capabilities immediately
 const DEFAULT_BUDGET = 350.00;
@@ -158,6 +159,11 @@ export default function App() {
   const [importPreview, setImportPreview] = useState<PreviewItem[] | null>(null);
   const [isAIClassifying, setIsAIClassifying] = useState(false);
   const [externalAITrigger, setExternalAITrigger] = useState<{ image: string; text: string; timestamp: number } | undefined>(undefined);
+
+  // States for Mercado Pago Screenshot comments & preview modal
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const [screenshotComment, setScreenshotComment] = useState<string>('');
+  const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState<boolean>(false);
 
   const handleUpdateUserName = (newName: string) => {
     const trimmed = newName.trim();
@@ -432,29 +438,22 @@ export default function App() {
   };
 
   const handleDeleteIncome = (id: string) => {
-    const target = incomes.find(i => i.id === id);
-    if (!target) return;
-    if (target.paymentMethod === 'efectivo') {
-      setCashBudget((prevCash) => Math.max(0, prevCash - target.amount));
-    } else {
-      setCardBudget((prevCard) => Math.max(0, prevCard - target.amount));
-    }
-    setIncomes((prev) => prev.filter(i => i.id !== id));
+    setIncomes((prev) => {
+      const target = prev.find(i => i.id === id);
+      if (!target) return prev;
+      if (target.paymentMethod === 'efectivo') {
+        setCashBudget((prevCash) => Math.max(0, prevCash - target.amount));
+      } else {
+        setCardBudget((prevCard) => Math.max(0, prevCard - target.amount));
+      }
+      return prev.filter(i => i.id !== id);
+    });
   };
 
   // Apartados handlers
   const handleAddApartado = (name: string, amount: number, paymentMethod: 'efectivo' | 'tarjeta') => {
     const trimmedName = name.trim();
     if (!trimmedName || amount <= 0) return;
-
-    // Verify availability
-    if (paymentMethod === 'efectivo') {
-      if (amount > cashBudget) return;
-      setCashBudget((prev) => prev - amount);
-    } else {
-      if (amount > cardBudget) return;
-      setCardBudget((prev) => prev - amount);
-    }
 
     const newApartado: Apartado = {
       id: `apartado-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -464,49 +463,76 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
-    setApartados((prev) => [...prev, newApartado]);
+    if (paymentMethod === 'efectivo') {
+      setCashBudget((prev) => {
+        if (amount > prev) return prev;
+        setApartados((prevAp) => [...prevAp, newApartado]);
+        return prev - amount;
+      });
+    } else {
+      setCardBudget((prev) => {
+        if (amount > prev) return prev;
+        setApartados((prevAp) => [...prevAp, newApartado]);
+        return prev - amount;
+      });
+    }
   };
 
   const handleDepositToApartado = (id: string, amount: number) => {
     if (amount <= 0) return;
     const target = apartados.find(ap => ap.id === id);
     if (!target) return;
+
     if (target.paymentMethod === 'efectivo') {
-      if (amount > cashBudget) return;
-      setCashBudget((prev) => prev - amount);
+      setCashBudget((prev) => {
+        if (amount > prev) return prev;
+        setApartados((prevAp) => prevAp.map(ap =>
+          ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
+        ));
+        return prev - amount;
+      });
     } else {
-      if (amount > cardBudget) return;
-      setCardBudget((prev) => prev - amount);
+      setCardBudget((prev) => {
+        if (amount > prev) return prev;
+        setApartados((prevAp) => prevAp.map(ap =>
+          ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
+        ));
+        return prev - amount;
+      });
     }
-    setApartados((prev) => prev.map(ap =>
-      ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
-    ));
   };
 
   const handleWithdrawFromApartado = (id: string, amount: number) => {
     if (amount <= 0) return;
-    const target = apartados.find(ap => ap.id === id);
-    if (!target) return;
-    const actualWithdraw = Math.min(target.amount, amount);
-    if (target.paymentMethod === 'efectivo') {
-      setCashBudget((prev) => prev + actualWithdraw);
-    } else {
-      setCardBudget((prev) => prev + actualWithdraw);
-    }
-    setApartados((prev) => prev.map(ap =>
-      ap.id === id ? { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) } : ap
-    ));
+    setApartados((prevAp) => {
+      const currentTarget = prevAp.find(ap => ap.id === id);
+      if (!currentTarget) return prevAp;
+      const actualWithdraw = Math.min(currentTarget.amount, amount);
+      if (actualWithdraw <= 0) return prevAp;
+
+      if (currentTarget.paymentMethod === 'efectivo') {
+        setCashBudget((prev) => prev + actualWithdraw);
+      } else {
+        setCardBudget((prev) => prev + actualWithdraw);
+      }
+
+      return prevAp.map(ap =>
+        ap.id === id ? { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) } : ap
+      );
+    });
   };
 
   const handleDeleteApartado = (id: string) => {
-    const target = apartados.find((ap) => ap.id === id);
-    if (!target) return;
-    if (target.paymentMethod === 'efectivo') {
-      setCashBudget((prev) => prev + target.amount);
-    } else {
-      setCardBudget((prev) => prev + target.amount);
-    }
-    setApartados((prev) => prev.filter((ap) => ap.id !== id));
+    setApartados((prevAp) => {
+      const target = prevAp.find((ap) => ap.id === id);
+      if (!target) return prevAp;
+      if (target.paymentMethod === 'efectivo') {
+        setCashBudget((prev) => prev + target.amount);
+      } else {
+        setCardBudget((prev) => prev + target.amount);
+      }
+      return prevAp.filter((ap) => ap.id !== id);
+    });
   };
 
   // Month closing wizard handler
@@ -522,11 +548,13 @@ export default function App() {
       .filter(i => i.paymentMethod !== 'efectivo')
       .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
-    const spentServicesCash = servicePayments
+    const currentMonthServices = servicePayments.filter(s => s.createdAt.startsWith(currentMonth));
+
+    const spentServicesCash = currentMonthServices
       .filter(s => s.paymentMethod === 'efectivo')
       .reduce((acc, curr) => acc + curr.amount, 0);
 
-    const spentServicesCard = servicePayments
+    const spentServicesCard = currentMonthServices
       .filter(s => s.paymentMethod !== 'efectivo')
       .reduce((acc, curr) => acc + curr.amount, 0);
 
@@ -564,12 +592,13 @@ export default function App() {
       monthId: currentMonth,
       summary,
       items: [...items],
-      servicePayments: [...servicePayments],
+      servicePayments: currentMonthServices,
       incomes: [...incomes]
     };
 
-    // Save to history
-    setMonthlyHistory(prev => [record, ...prev]);
+
+    // Save to history (prevent duplicates by filtering out any existing record with the same monthId)
+    setMonthlyHistory(prev => [record, ...prev.filter(r => r.monthId !== currentMonth)]);
 
     // Setup next month active settings
     const nextMonthDate = new Date(parseInt(year), parseInt(month), 1);
@@ -591,14 +620,20 @@ export default function App() {
       setItems([]);
     }
 
-    // Preserve recurring service definitions (with their past createdAt)
+    // Preserve service payments of other months (non-current month) and the latest instances of recurring service definitions
+    const nonCurrentMonthServices = servicePayments.filter(sp => !sp.createdAt.startsWith(currentMonth));
     const uniqueRecurrents: Record<string, ServicePayment> = {};
     servicePayments.filter(sp => sp.isRecurring).forEach(sp => {
       if (!uniqueRecurrents[sp.service] || new Date(sp.createdAt) > new Date(uniqueRecurrents[sp.service].createdAt)) {
         uniqueRecurrents[sp.service] = sp;
       }
     });
-    setServicePayments(Object.values(uniqueRecurrents));
+
+    const newServicePaymentsMap = new Map<string, ServicePayment>();
+    nonCurrentMonthServices.forEach(sp => newServicePaymentsMap.set(sp.id, sp));
+    Object.values(uniqueRecurrents).forEach(sp => newServicePaymentsMap.set(sp.id, sp));
+
+    setServicePayments(Array.from(newServicePaymentsMap.values()));
 
     setIsCloseWizardOpen(false);
   };
@@ -617,76 +652,29 @@ export default function App() {
           return;
         }
 
-        // Gather all existing external IDs for deduplication
-        const existingIds = new Set<string>();
-        items.forEach(i => i.externalId && existingIds.add(i.externalId));
-        servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
-        incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
-        monthlyHistory.forEach(h => {
-          h.items.forEach(i => i.externalId && existingIds.add(i.externalId));
-          h.servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
-          h.incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
-        });
-
-        // Build fuzzy match index from ALL existing manual entries (items without externalId)
-        // Each entry: { name, amount, dateStr (YYYY-MM-DD), source }
-        const fuzzyIndex: { name: string; amount: number; dateStr: string; source: string }[] = [];
-        const toDateStr = (iso: string) => iso.slice(0, 10);
-        const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').trim();
-
-        items.forEach(i => {
-          fuzzyIndex.push({ name: normalize(i.name), amount: i.price * i.quantity, dateStr: toDateStr(i.createdAt), source: `Compra: ${i.name} ($${(i.price * i.quantity).toFixed(2)})` });
-        });
-        servicePayments.forEach(s => {
-          fuzzyIndex.push({ name: normalize(s.service), amount: s.amount, dateStr: toDateStr(s.createdAt), source: `Servicio: ${s.service} ($${s.amount.toFixed(2)})` });
-        });
-        incomes.forEach(inc => {
-          fuzzyIndex.push({ name: normalize(inc.name), amount: inc.amount, dateStr: toDateStr(inc.createdAt), source: `Ingreso: ${inc.name} ($${inc.amount.toFixed(2)})` });
-        });
-
-        // Fuzzy match helper: same day + same amount (±2%) + name has at least one common word (3+ chars)
-        const fuzzyMatch = (csvName: string, csvAmount: number, csvDate: string): string | null => {
-          const csvDateStr = toDateStr(csvDate);
-          const csvNorm = normalize(csvName);
-          const csvWords = csvNorm.split(/\s+/).filter(w => w.length >= 3);
-          const absAmount = Math.abs(csvAmount);
-
-          for (const entry of fuzzyIndex) {
-            // Same calendar day
-            if (entry.dateStr !== csvDateStr) continue;
-            // Amount within 2% tolerance
-            const amountDiff = Math.abs(entry.amount - absAmount);
-            if (amountDiff > absAmount * 0.02 && amountDiff > 0.01) continue;
-            // At least one meaningful word in common
-            const entryWords = entry.name.split(/\s+/).filter(w => w.length >= 3);
-            const hasCommonWord = csvWords.some(cw => entryWords.some(ew => ew.includes(cw) || cw.includes(ew)));
-            // If amounts match exactly and date matches, that's strong enough even without name match
-            if (hasCommonWord || amountDiff < 0.01) {
-              return entry.source;
-            }
-          }
-          return null;
-        };
+        // Build the unified duplicate index including history records
+        const dupIndex = buildDuplicateIndex(items, servicePayments, incomes, monthlyHistory);
 
         // Filter duplicates or mark them
         const marked: PreviewItem[] = parsed.map(t => {
-          const isExactDup = t.externalId ? existingIds.has(t.externalId) : false;
-          let isFuzzy = false;
-          let fuzzyDetails: string | undefined;
-          if (!isExactDup) {
-            const match = fuzzyMatch(t.description, t.amount, t.date);
-            if (match) {
-              isFuzzy = true;
-              fuzzyDetails = match;
-            }
-          }
+          const check = checkDuplicateTransaction({
+            name: t.description,
+            amount: t.amount,
+            date: t.date,
+            externalId: t.externalId
+          }, dupIndex);
+
+          const isExactDup = check?.type === 'exact';
+          const isFuzzy = check?.type === 'fuzzy';
+          const fuzzyDetails = check?.type === 'fuzzy' ? check.details : undefined;
+
           return {
             ...t,
-            tempId: t.externalId || `temp-import-${Math.random().toString(36).substr(2, 9)}`,
+            tempId: t.externalId || `temp-import-${Math.random().toString(36).substring(2, 11)}`,
             isDuplicate: isExactDup,
             isFuzzyDuplicate: isFuzzy,
             fuzzyMatchDetails: fuzzyDetails,
-            excluded: isFuzzy // Auto-exclude fuzzy matches, user can override
+            excluded: isFuzzy || isExactDup // Auto-exclude fuzzy or exact duplicates
           };
         });
 
@@ -702,32 +690,72 @@ export default function App() {
 
   const handleMPScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    const targetInput = e.target;
     if (!file) return;
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      const base64 = reader.result as string;
-      const prompt = `Analiza detalladamente esta captura de pantalla de Mercado Pago, la cual puede contener múltiples transacciones pertenecientes a uno o varios días distintos (agrupadas bajo encabezados de fecha como "2 de junio", "1 de junio", etc.).
-Para cada transacción visible en la imagen:
-1. Asóciala con la fecha correspondiente del encabezado del día bajo el cual aparece. Convierte esta fecha a formato absoluto YYYY-MM-DD (usando el mes y año actual activo de la aplicación) y pásala en el parámetro 'createdAt'.
-2. Identifica qué tipo de movimiento es e invoca la herramienta adecuada correspondiente:
-   - Si es un ingreso (transferencia recibida, dinero recibido, abono, devolución, ganancia/beneficio), propón agregarlo usando la herramienta 'add_income_proposed'.
-   - Si es un pago de servicio recurrente o puntual (por ejemplo: Uber, Didi, Telcel, Netflix, Spotify, CFE, Agua, etc.), propón agregarlo usando la herramienta 'add_service_proposed'.
-   - Si es una compra, gasto o pago a un comercio (por ejemplo: supermercado, restaurante, etc.), propón agregarlo usando la herramienta 'add_item_proposed' con bought = true, place = 'Mercado Pago' (o el nombre del comercio si es visible) y la categoría de compra adecuada.
-   - Si es un retiro/apartado a ahorros, propón agregarlo usando la herramienta 'add_apartado_proposed' (o 'withdraw_from_apartado_proposed' si es un retiro de ahorros).
-3. Extrae con precisión el concepto, el monto (como valor positivo, sin signo negativo) y el ID de transacción o "Número de operación" (si está visible) y pásalo como 'externalId'.
-4. Llama a la herramienta correspondiente para cada movimiento detectado. Debes generar una llamada de herramienta por cada transacción individual visible.`;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1024;
+        const MAX_HEIGHT = 1024;
+        let width = img.width;
+        let height = img.height;
 
-      setExternalAITrigger({
-        image: base64,
-        text: prompt,
-        timestamp: Date.now()
-      });
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
 
-      // Clear input
-      e.target.value = '';
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+          setScreenshotPreview(compressedBase64);
+          setIsScreenshotModalOpen(true);
+        } else {
+          setScreenshotPreview(reader.result as string);
+          setIsScreenshotModalOpen(true);
+        }
+      };
+      img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
+
+    targetInput.value = '';
+  };
+
+  const handleExecuteScreenshotScan = (base64: string, comment: string) => {
+    let prompt = `Analiza detalladamente esta captura de pantalla de transacciones o movimientos financieros.
+Para cada transacción o movimiento que identifiques en la imagen:
+1. Extrae los datos: concepto/tienda, monto (valor numérico positivo), fecha e ID de transacción o referencia (si está visible).
+2. Asocia la fecha a un formato absoluto YYYY-MM-DD (usando el mes y año actual activo de la aplicación) y pásala en el parámetro 'createdAt'.
+3. Identifica qué tipo de movimiento es e invoca la herramienta adecuada correspondiente:
+   - Ingresos (nómina, transferencias recibidas, regalos, abonos, etc.): usa la herramienta 'add_income_proposed'.
+   - Pagos de servicios recurrentes/suscripciones o puntuales (Netflix, Spotify, agua, luz, recargas, telefonía, taxis, Uber, etc.): usa la herramienta 'add_service_proposed'.
+   - Compras o gastos de consumo (supermercado, comida, compras generales, etc.): usa la herramienta 'add_item_proposed' con bought = true, place y la categoría de compra lógica.
+   - Retiros, ahorros o transferencias a fondos apartados: usa la herramienta 'add_apartado_proposed' (o 'withdraw_from_apartado_proposed' si es retiro, o 'deposit_to_apartado_proposed' si es depósito).
+4. Genera llamadas a herramientas separadas para cada transacción que veas en la imagen.`;
+
+    if (comment.trim()) {
+      prompt += `\n\nINSTRUCCIONES ADICIONALES DEL USUARIO (Sigue estrictamente estas indicaciones sobre qué procesar o modificar):\n"${comment.trim()}"`;
+    }
+
+    setExternalAITrigger({
+      image: base64,
+      text: prompt,
+      timestamp: Date.now()
+    });
   };
 
   const handleClassifyWithAI = async () => {
@@ -960,13 +988,17 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             .filter(i => i.paymentMethod !== 'efectivo')
             .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
+          const spentServicesCard = newHistoryServices
+            .filter(s => s.paymentMethod !== 'efectivo')
+            .reduce((acc, curr) => acc + curr.amount, 0);
+
           const spentServices = newHistoryServices.reduce((acc, curr) => acc + curr.amount, 0);
 
           const totalIncomesCard = newHistoryIncomes
             .filter(i => i.paymentMethod === 'tarjeta')
             .reduce((acc, curr) => acc + curr.amount, 0);
 
-          const remainingCardVal = Math.max(0, record.summary.initialCardBudget + totalIncomesCard - spentCard - spentServices);
+          const remainingCardVal = Math.max(0, record.summary.initialCardBudget + totalIncomesCard - spentCard - spentServicesCard);
 
           const updatedSummary = {
             ...record.summary,
@@ -995,13 +1027,17 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             .filter(i => i.paymentMethod !== 'efectivo')
             .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
+          const spentServicesCard = updates.servicePayments
+            .filter(s => s.paymentMethod !== 'efectivo')
+            .reduce((acc, curr) => acc + curr.amount, 0);
+
           const spentServices = updates.servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
 
           const totalIncomesCard = updates.incomes
             .filter(i => i.paymentMethod === 'tarjeta')
             .reduce((acc, curr) => acc + curr.amount, 0);
 
-          const remainingCardVal = Math.max(0, totalIncomesCard - spentCard - spentServices);
+          const remainingCardVal = Math.max(0, totalIncomesCard - spentCard - spentServicesCard);
 
           const newSummary = {
             monthId,
@@ -1043,8 +1079,11 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       createdAt: itemData.createdAt || new Date().toISOString()
     };
     setItems((prev) => [newItem, ...prev]);
-    if (itemData.place && !places.some((place) => place.toLowerCase() === itemData.place.toLowerCase())) {
-      setPlaces((prev) => [itemData.place, ...prev]);
+    if (itemData.place) {
+      setPlaces((prev) => {
+        if (prev.some((place) => place.toLowerCase() === itemData.place.toLowerCase())) return prev;
+        return [itemData.place, ...prev];
+      });
     }
   };
 
@@ -1122,8 +1161,10 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   const handleAddPlace = (name: string) => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    if (places.some((place) => place.toLowerCase() === trimmedName.toLowerCase())) return;
-    setPlaces((prev) => [trimmedName, ...prev]);
+    setPlaces((prev) => {
+      if (prev.some((place) => place.toLowerCase() === trimmedName.toLowerCase())) return prev;
+      return [trimmedName, ...prev];
+    });
   };
 
   const handleAddServicePayment = (paymentData: Omit<ServicePayment, 'id' | 'createdAt'> & { createdAt?: string }) => {
@@ -1133,8 +1174,11 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       createdAt: paymentData.createdAt || new Date().toISOString()
     };
     setServicePayments((prev) => [newPayment, ...prev]);
-    if (paymentData.service && !serviceOptions.some((service) => service.toLowerCase() === paymentData.service.toLowerCase())) {
-      setServiceOptions((prev) => [paymentData.service, ...prev]);
+    if (paymentData.service) {
+      setServiceOptions((prev) => {
+        if (prev.some((service) => service.toLowerCase() === paymentData.service.toLowerCase())) return prev;
+        return [paymentData.service, ...prev];
+      });
     }
   };
 
@@ -1149,8 +1193,10 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   const handleAddServiceOption = (name: string) => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    if (serviceOptions.some((service) => service.toLowerCase() === trimmedName.toLowerCase())) return;
-    setServiceOptions((prev) => [trimmedName, ...prev]);
+    setServiceOptions((prev) => {
+      if (prev.some((service) => service.toLowerCase() === trimmedName.toLowerCase())) return prev;
+      return [trimmedName, ...prev];
+    });
   };
 
   // Reset shopping database completely
@@ -1287,7 +1333,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   // Compute stats in real-time (vaya haciendo cuentas de todo)
   const itemsSpent = items.reduce((acc, curr) => acc + (curr.bought ? curr.price * curr.quantity : 0), 0);
   const planned = items.reduce((acc, curr) => acc + (!curr.bought ? curr.price * curr.quantity : 0), 0);
-  const servicesSpent = servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
+  const currentMonthServices = servicePayments.filter(s => s.createdAt.startsWith(currentMonth));
+  const servicesSpent = currentMonthServices.reduce((acc, curr) => acc + curr.amount, 0);
   const spent = itemsSpent + servicesSpent;
   const totalBudget = cashBudget + cardBudget;
   const remaining = totalBudget - spent;
@@ -1296,8 +1343,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   const cashPlanned = items.reduce((acc, curr) => acc + (!curr.bought && curr.paymentMethod === 'efectivo' ? curr.price * curr.quantity : 0), 0);
   const cardSpentItems = items.reduce((acc, curr) => acc + (curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
   const cardPlanned = items.reduce((acc, curr) => acc + (!curr.bought && curr.paymentMethod !== 'efectivo' ? curr.price * curr.quantity : 0), 0);
-  const cashSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod === 'efectivo' ? curr.amount : 0), 0);
-  const cardSpentServices = servicePayments.reduce((acc, curr) => acc + (curr.paymentMethod !== 'efectivo' ? curr.amount : 0), 0);
+  const cashSpentServices = currentMonthServices.reduce((acc, curr) => acc + (curr.paymentMethod === 'efectivo' ? curr.amount : 0), 0);
+  const cardSpentServices = currentMonthServices.reduce((acc, curr) => acc + (curr.paymentMethod !== 'efectivo' ? curr.amount : 0), 0);
   const cashSpent = cashSpentItems + cashSpentServices;
   const cardSpent = cardSpentItems + cardSpentServices;
 
@@ -1313,6 +1360,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     cardSpent,
     cardPlanned
   };
+
 
   // Extract unique place strings sorted for smart Autocomplete suggestions
   const existingPlaces: string[] = places.map((place) => place.trim()).filter(Boolean) as string[];
@@ -1720,11 +1768,14 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
           {activeSection === 'services' && (
             <div className="max-w-4xl mx-auto animate-in fade-in duration-200">
               <ServicePayments
-                payments={servicePayments}
+                payments={servicePayments.filter(s => s.createdAt.startsWith(currentMonth))}
                 services={serviceOptions}
                 onAddPayment={handleAddServicePayment}
                 onDeletePayment={handleDeleteServicePayment}
                 onAddService={handleAddServiceOption}
+                items={items}
+                incomes={incomes}
+                monthlyHistory={monthlyHistory}
               />
             </div>
           )}
@@ -1760,7 +1811,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
               {reportTab === 'charts' ? (
                 <ExpenseCharts
                   items={items}
-                  servicePayments={servicePayments}
+                  servicePayments={servicePayments.filter(s => s.createdAt.startsWith(currentMonth))}
                   categories={categories}
                   cashBudget={cashBudget}
                   cardBudget={cardBudget}
@@ -1973,6 +2024,109 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
         incomes={incomes}
         onConfirmClose={handleConfirmCloseMonth}
       />
+
+      {/* Modal para añadir comentarios a la captura de pantalla */}
+      {isScreenshotModalOpen && screenshotPreview && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-lg flex flex-col shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200 overflow-hidden">
+            
+            {/* Header */}
+            <div className="p-6 border-b border-slate-150 flex items-center justify-between bg-slate-50 shrink-0">
+              <div>
+                <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                  <span>📷</span> Analizar Captura con IA
+                </h3>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  Agrega indicaciones opcionales antes de procesar con Gemini.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsScreenshotModalOpen(false);
+                  setScreenshotPreview(null);
+                  setScreenshotComment('');
+                }}
+                className="w-8 h-8 rounded-full bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-600 transition cursor-pointer font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              {/* Image Preview */}
+              <div className="w-full max-h-[200px] rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center">
+                <img
+                  src={screenshotPreview}
+                  alt="Vista previa de captura"
+                  className="max-w-full max-h-[200px] object-contain"
+                />
+              </div>
+
+              {/* Comment Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 block uppercase tracking-wider">
+                  Instrucciones o Comentarios (Opcional):
+                </label>
+                <textarea
+                  value={screenshotComment}
+                  onChange={(e) => setScreenshotComment(e.target.value)}
+                  placeholder="Ej: 'Solo agrega el cobro de Telcel', 'Cambia el método a efectivo'..."
+                  className="w-full min-h-[80px] text-xs font-semibold p-3 border border-slate-250 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 bg-slate-50/50 resize-y"
+                />
+              </div>
+
+              {/* Presets / Quick buttons */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-black text-slate-400 block uppercase tracking-wider">
+                  Atajos rápidos:
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setScreenshotComment("Solo registra las ganancias/rendimientos de Mercado Pago")}
+                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-700 border border-emerald-250 rounded-xl text-[10px] font-extrabold cursor-pointer transition active:scale-95 shadow-2xs"
+                  >
+                    📈 Solo Ganancias de Mercado Pago
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScreenshotComment("Registrar solo los servicios recurrentes")}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100/80 text-indigo-700 border border-indigo-250 rounded-xl text-[10px] font-extrabold cursor-pointer transition active:scale-95 shadow-2xs"
+                  >
+                    🔄 Solo Servicios
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-slate-150 flex items-center justify-end gap-3 bg-slate-50 shrink-0">
+              <button
+                onClick={() => {
+                  setIsScreenshotModalOpen(false);
+                  setScreenshotPreview(null);
+                  setScreenshotComment('');
+                }}
+                className="px-5 py-3 bg-slate-250 hover:bg-slate-350 text-slate-700 rounded-2xl text-xs font-black cursor-pointer transition select-none active:scale-97"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  handleExecuteScreenshotScan(screenshotPreview, screenshotComment);
+                  setIsScreenshotModalOpen(false);
+                  setScreenshotPreview(null);
+                  setScreenshotComment('');
+                }}
+                className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black shadow-md cursor-pointer transition active:scale-97 select-none"
+              >
+                Procesar con IA
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {importPreview && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
@@ -2248,6 +2402,10 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
               onAddPlace={handleAddPlace}
               categories={categories}
               onAddCategory={handleAddCategory}
+              items={items}
+              servicePayments={servicePayments}
+              incomes={incomes}
+              monthlyHistory={monthlyHistory}
             />
           </div>
         </div>

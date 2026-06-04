@@ -10,9 +10,11 @@ import {
   DollarSign, 
   Hash, 
   Grid,
-  Info
+  Info,
+  AlertCircle
 } from 'lucide-react';
 import { ShoppingItem, PAYMENT_METHODS, Category } from '../types';
+import { buildDuplicateIndex, checkDuplicateTransaction } from '../utils/duplicateDetector';
 
 interface AddItemFormProps {
   onAddItem: (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => void;
@@ -20,9 +22,23 @@ interface AddItemFormProps {
   categories: Category[];
   onAddCategory: (name: string) => void;
   onAddPlace: (name: string) => void;
+  items: any[];
+  servicePayments: any[];
+  incomes: any[];
+  monthlyHistory: any[];
 }
 
-export default function AddItemForm({ onAddItem, existingPlaces, categories, onAddCategory, onAddPlace }: AddItemFormProps) {
+export default function AddItemForm({ 
+  onAddItem, 
+  existingPlaces, 
+  categories, 
+  onAddCategory, 
+  onAddPlace,
+  items,
+  servicePayments,
+  incomes,
+  monthlyHistory
+}: AddItemFormProps) {
   const [name, setName] = useState('');
   const [place, setPlace] = useState('');
   const [newPlaceName, setNewPlaceName] = useState('');
@@ -33,6 +49,22 @@ export default function AddItemForm({ onAddItem, existingPlaces, categories, onA
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
+
+  const dupIndex = React.useMemo(() => {
+    return buildDuplicateIndex(items, servicePayments, incomes, monthlyHistory);
+  }, [items, servicePayments, incomes, monthlyHistory]);
+
+  const duplicateCheck = React.useMemo(() => {
+    if (isBulkMode || !name.trim()) return null;
+    const price = parseFloat(priceInput) || 0;
+    if (price <= 0) return null;
+
+    return checkDuplicateTransaction({
+      name: name.trim(),
+      amount: price * quantity,
+      date: new Date()
+    }, dupIndex);
+  }, [name, priceInput, quantity, isBulkMode, dupIndex]);
 
   useEffect(() => {
     if (!categories.find((cat) => cat.id === selectedCategory)) {
@@ -148,6 +180,27 @@ export default function AddItemForm({ onAddItem, existingPlaces, categories, onA
               placeholder="Ej. Leche deslactosada, Zapatillas, Cafetera..."
               className="w-full px-4 py-3 bg-white border border-slate-300 shadow-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-200 rounded-2xl text-slate-800 font-medium placeholder-slate-400 focus:outline-none transition duration-150 text-sm"
             />
+            {duplicateCheck && (
+              <div className={`mt-2 p-3.5 rounded-2xl border text-xs leading-relaxed font-semibold flex items-start gap-2.5 ${
+                duplicateCheck.type === 'exact' 
+                  ? 'bg-rose-50 border-rose-100 text-rose-800 animate-in fade-in duration-200' 
+                  : 'bg-orange-50 border-orange-100 text-orange-850 animate-in fade-in duration-200'
+              }`}>
+                <AlertCircle className={`w-4.5 h-4.5 shrink-0 mt-0.5 ${
+                  duplicateCheck.type === 'exact' ? 'text-rose-500' : 'text-orange-500'
+                }`} />
+                <div>
+                  <span className="font-extrabold">
+                    {duplicateCheck.type === 'exact' ? '⚠️ Compra ya registrada' : '⚠️ Posible Compra Duplicada'}:
+                  </span>{' '}
+                  <span>
+                    {duplicateCheck.type === 'exact' 
+                      ? 'Este artículo ya se encuentra registrado con los mismos datos en tu base de datos de hoy.' 
+                      : `Encontramos una transacción similar registrada hoy: ${duplicateCheck.details}`}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
