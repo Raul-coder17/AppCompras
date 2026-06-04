@@ -258,7 +258,7 @@ export default function BudgetCard({
             <div className="flex items-center justify-end gap-1.5">
               <button
                 onClick={() => setShowAddApartadoType(null)}
-                className="px-3 py-1.5 text-xs text-slate-650 hover:bg-slate-200/50 rounded-lg font-extrabold cursor-pointer transition"
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200/50 rounded-lg font-extrabold cursor-pointer transition"
               >
                 Cancelar
               </button>
@@ -337,7 +337,7 @@ export default function BudgetCard({
           {/* Capital accumulation display */}
           <div className="space-y-2.5">
             <div className="flex items-center gap-2 text-slate-500">
-              <div className="p-1.5 bg-slate-100 rounded-lg text-slate-650 border border-slate-200/50 shadow-2xs">
+              <div className="p-1.5 bg-slate-100 rounded-lg text-slate-600 border border-slate-200/50 shadow-2xs">
                 <Wallet className="w-4 h-4 animate-bounce" />
               </div>
               <span className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500">
@@ -518,7 +518,7 @@ export default function BudgetCard({
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-xs font-extrabold text-slate-650">
+                  <span className="text-xs font-extrabold text-slate-600">
                     ${cashBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <button
@@ -620,7 +620,7 @@ export default function BudgetCard({
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-xs font-extrabold text-slate-650">
+                  <span className="text-xs font-extrabold text-slate-600">
                     ${cardBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <button

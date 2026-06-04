@@ -27,7 +27,8 @@ import {
   X,
   Coins,
   Sparkles,
-  Upload
+  Upload,
+  Camera
 } from 'lucide-react';
 import { ShoppingItem, ArchivedItem, BudgetSummary, PREDEFINED_CATEGORIES, PAYMENT_METHODS, ServicePayment, PREDEFINED_SERVICES, Income, MonthlySummary, MonthlyHistoryRecord, Apartado } from './types';
 import BudgetCard from './components/BudgetCard';
@@ -156,6 +157,7 @@ export default function App() {
   }
   const [importPreview, setImportPreview] = useState<PreviewItem[] | null>(null);
   const [isAIClassifying, setIsAIClassifying] = useState(false);
+  const [externalAITrigger, setExternalAITrigger] = useState<{ image: string; text: string; timestamp: number } | undefined>(undefined);
 
   const handleUpdateUserName = (newName: string) => {
     const trimmed = newName.trim();
@@ -415,11 +417,11 @@ export default function App() {
   }, [currentMonth]);
 
   // Income handlers
-  const handleAddIncome = (incomeData: Omit<Income, 'id' | 'createdAt'>) => {
+  const handleAddIncome = (incomeData: Omit<Income, 'id' | 'createdAt'> & { createdAt?: string }) => {
     const newIncome: Income = {
       ...incomeData,
       id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date().toISOString()
+      createdAt: incomeData.createdAt || new Date().toISOString()
     };
     setIncomes((prev) => [newIncome, ...prev]);
     if (incomeData.paymentMethod === 'efectivo') {
@@ -430,17 +432,14 @@ export default function App() {
   };
 
   const handleDeleteIncome = (id: string) => {
-    setIncomes((prev) => {
-      const target = prev.find(i => i.id === id);
-      if (target) {
-        if (target.paymentMethod === 'efectivo') {
-          setCashBudget((prevCash) => Math.max(0, prevCash - target.amount));
-        } else {
-          setCardBudget((prevCard) => Math.max(0, prevCard - target.amount));
-        }
-      }
-      return prev.filter(i => i.id !== id);
-    });
+    const target = incomes.find(i => i.id === id);
+    if (!target) return;
+    if (target.paymentMethod === 'efectivo') {
+      setCashBudget((prevCash) => Math.max(0, prevCash - target.amount));
+    } else {
+      setCardBudget((prevCard) => Math.max(0, prevCard - target.amount));
+    }
+    setIncomes((prev) => prev.filter(i => i.id !== id));
   };
 
   // Apartados handlers
@@ -470,54 +469,44 @@ export default function App() {
 
   const handleDepositToApartado = (id: string, amount: number) => {
     if (amount <= 0) return;
-    setApartados((prev) => {
-      return prev.map((ap) => {
-        if (ap.id === id) {
-          // Verify budget availability
-          if (ap.paymentMethod === 'efectivo') {
-            if (amount > cashBudget) return ap;
-            setCashBudget((prevCash) => prevCash - amount);
-          } else {
-            if (amount > cardBudget) return ap;
-            setCardBudget((prevCard) => prevCard - amount);
-          }
-          return { ...ap, amount: ap.amount + amount };
-        }
-        return ap;
-      });
-    });
+    const target = apartados.find(ap => ap.id === id);
+    if (!target) return;
+    if (target.paymentMethod === 'efectivo') {
+      if (amount > cashBudget) return;
+      setCashBudget((prev) => prev - amount);
+    } else {
+      if (amount > cardBudget) return;
+      setCardBudget((prev) => prev - amount);
+    }
+    setApartados((prev) => prev.map(ap =>
+      ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
+    ));
   };
 
   const handleWithdrawFromApartado = (id: string, amount: number) => {
     if (amount <= 0) return;
-    setApartados((prev) => {
-      return prev.map((ap) => {
-        if (ap.id === id) {
-          const actualWithdraw = Math.min(ap.amount, amount);
-          if (ap.paymentMethod === 'efectivo') {
-            setCashBudget((prevCash) => prevCash + actualWithdraw);
-          } else {
-            setCardBudget((prevCard) => prevCard + actualWithdraw);
-          }
-          return { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) };
-        }
-        return ap;
-      });
-    });
+    const target = apartados.find(ap => ap.id === id);
+    if (!target) return;
+    const actualWithdraw = Math.min(target.amount, amount);
+    if (target.paymentMethod === 'efectivo') {
+      setCashBudget((prev) => prev + actualWithdraw);
+    } else {
+      setCardBudget((prev) => prev + actualWithdraw);
+    }
+    setApartados((prev) => prev.map(ap =>
+      ap.id === id ? { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) } : ap
+    ));
   };
 
   const handleDeleteApartado = (id: string) => {
-    setApartados((prev) => {
-      const target = prev.find((ap) => ap.id === id);
-      if (target) {
-        if (target.paymentMethod === 'efectivo') {
-          setCashBudget((prevCash) => prevCash + target.amount);
-        } else {
-          setCardBudget((prevCard) => prevCard + target.amount);
-        }
-      }
-      return prev.filter((ap) => ap.id !== id);
-    });
+    const target = apartados.find((ap) => ap.id === id);
+    if (!target) return;
+    if (target.paymentMethod === 'efectivo') {
+      setCashBudget((prev) => prev + target.amount);
+    } else {
+      setCardBudget((prev) => prev + target.amount);
+    }
+    setApartados((prev) => prev.filter((ap) => ap.id !== id));
   };
 
   // Month closing wizard handler
@@ -530,7 +519,7 @@ export default function App() {
       .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
     const spentCard = boughtItems
-      .filter(i => i.paymentMethod === 'tarjeta' || i.paymentMethod === 'transferencia')
+      .filter(i => i.paymentMethod !== 'efectivo')
       .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
 
     const spentServicesCash = servicePayments
@@ -711,9 +700,48 @@ export default function App() {
     reader.readAsText(file, 'utf-8');
   };
 
+  const handleMPScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      const prompt = `Analiza detalladamente esta captura de pantalla de Mercado Pago, la cual puede contener múltiples transacciones pertenecientes a uno o varios días distintos (agrupadas bajo encabezados de fecha como "2 de junio", "1 de junio", etc.).
+Para cada transacción visible en la imagen:
+1. Asóciala con la fecha correspondiente del encabezado del día bajo el cual aparece. Convierte esta fecha a formato absoluto YYYY-MM-DD (usando el mes y año actual activo de la aplicación) y pásala en el parámetro 'createdAt'.
+2. Identifica qué tipo de movimiento es e invoca la herramienta adecuada correspondiente:
+   - Si es un ingreso (transferencia recibida, dinero recibido, abono, devolución, ganancia/beneficio), propón agregarlo usando la herramienta 'add_income_proposed'.
+   - Si es un pago de servicio recurrente o puntual (por ejemplo: Uber, Didi, Telcel, Netflix, Spotify, CFE, Agua, etc.), propón agregarlo usando la herramienta 'add_service_proposed'.
+   - Si es una compra, gasto o pago a un comercio (por ejemplo: supermercado, restaurante, etc.), propón agregarlo usando la herramienta 'add_item_proposed' con bought = true, place = 'Mercado Pago' (o el nombre del comercio si es visible) y la categoría de compra adecuada.
+   - Si es un retiro/apartado a ahorros, propón agregarlo usando la herramienta 'add_apartado_proposed' (o 'withdraw_from_apartado_proposed' si es un retiro de ahorros).
+3. Extrae con precisión el concepto, el monto (como valor positivo, sin signo negativo) y el ID de transacción o "Número de operación" (si está visible) y pásalo como 'externalId'.
+4. Llama a la herramienta correspondiente para cada movimiento detectado. Debes generar una llamada de herramienta por cada transacción individual visible.`;
+
+      setExternalAITrigger({
+        image: base64,
+        text: prompt,
+        timestamp: Date.now()
+      });
+
+      // Clear input
+      e.target.value = '';
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleClassifyWithAI = async () => {
     if (!importPreview) return;
-    const apiKey = localStorage.getItem('cobuy_gemini_api_key') || '';
+    const storedApiKey = localStorage.getItem('cobuy_gemini_api_key') || '';
+    let apiKey = storedApiKey;
+    if (storedApiKey && !storedApiKey.startsWith('AIza')) {
+      try {
+        apiKey = atob(storedApiKey);
+      } catch (e) {
+        apiKey = storedApiKey;
+      }
+    }
+
     if (!apiKey.trim()) {
       alert("Por favor, configura tu API Key de Gemini en el Asistente de IA (ícono de estrella arriba) para poder usar la clasificación inteligente.");
       return;
@@ -763,11 +791,12 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       };
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey.trim()}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`,
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey.trim()
           },
           body: JSON.stringify(requestBody)
         }
@@ -824,7 +853,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
     let cardBudgetAdjustment = 0;
 
-    itemsToImport.forEach(item => {
+    itemsToImport.forEach((item, idx) => {
       const itemDate = new Date(item.date);
       const itemYear = itemDate.getFullYear();
       const itemMonth = itemDate.getMonth() + 1;
@@ -834,7 +863,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       if (isActiveMonth) {
         if (item.type === 'income') {
           const newInc: Income = {
-            id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: `income-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             name: item.description,
             amount: Math.abs(item.amount),
             paymentMethod: 'tarjeta',
@@ -845,7 +874,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
           cardBudgetAdjustment += newInc.amount;
         } else if (item.type === 'service') {
           const newServ: ServicePayment = {
-            id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: `service-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             service: item.inferredService || 'Otro servicio',
             amount: Math.abs(item.amount),
             paymentMethod: 'tarjeta',
@@ -856,7 +885,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
           newServices.push(newServ);
         } else {
           const newExp: ShoppingItem = {
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: `item-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             name: item.description,
             place: 'Mercado Pago',
             price: Math.abs(item.amount),
@@ -876,7 +905,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
         if (item.type === 'income') {
           historyUpdates[monthId].incomes.push({
-            id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: `income-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             name: item.description,
             amount: Math.abs(item.amount),
             paymentMethod: 'tarjeta',
@@ -885,7 +914,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
           });
         } else if (item.type === 'service') {
           historyUpdates[monthId].servicePayments.push({
-            id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: `service-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             service: item.inferredService || 'Otro servicio',
             amount: Math.abs(item.amount),
             paymentMethod: 'tarjeta',
@@ -895,7 +924,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
           });
         } else {
           historyUpdates[monthId].items.push({
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: `item-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             name: item.description,
             place: 'Mercado Pago',
             price: Math.abs(item.amount),
@@ -1007,11 +1036,11 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   };
 
   // Core Mutation Actions
-  const handleAddItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
+  const handleAddItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'> & { createdAt?: string }) => {
     const newItem: ShoppingItem = {
       ...itemData,
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date().toISOString()
+      createdAt: itemData.createdAt || new Date().toISOString()
     };
     setItems((prev) => [newItem, ...prev]);
     if (itemData.place && !places.some((place) => place.toLowerCase() === itemData.place.toLowerCase())) {
@@ -1097,11 +1126,11 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     setPlaces((prev) => [trimmedName, ...prev]);
   };
 
-  const handleAddServicePayment = (paymentData: Omit<ServicePayment, 'id' | 'createdAt'>) => {
+  const handleAddServicePayment = (paymentData: Omit<ServicePayment, 'id' | 'createdAt'> & { createdAt?: string }) => {
     const newPayment: ServicePayment = {
       ...paymentData,
       id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date().toISOString()
+      createdAt: paymentData.createdAt || new Date().toISOString()
     };
     setServicePayments((prev) => [newPayment, ...prev]);
     if (paymentData.service && !serviceOptions.some((service) => service.toLowerCase() === paymentData.service.toLowerCase())) {
@@ -1110,7 +1139,11 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   };
 
   const handleDeleteServicePayment = (id: string) => {
-    setServicePayments((prev) => prev.filter((payment) => payment.id !== id));
+    const target = servicePayments.find((payment) => payment.id === id);
+    if (!target) return;
+    if (window.confirm(`¿Estás seguro de eliminar el pago del servicio "${target.service}" por $${target.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}?`)) {
+      setServicePayments((prev) => prev.filter((payment) => payment.id !== id));
+    }
   };
 
   const handleAddServiceOption = (name: string) => {
@@ -1129,6 +1162,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     setItems([]);
     setArchivedItems([]);
     setServicePayments([]);
+    setIncomes([]);
+    setApartados([]);
     setCashBudget(0);
     setCardBudget(0);
     setSelectedStoreFilter(null);
@@ -1246,6 +1281,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Compute stats in real-time (vaya haciendo cuentas de todo)
@@ -1491,7 +1527,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                     onClick={() => setCapitalTab('history')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${capitalTab === 'history'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1518,7 +1554,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   {/* Mercado Pago CSV Import Card */}
                   <div className="glass-card rounded-3xl p-6 md:p-8 border border-slate-200/85 hover:shadow-md transition-all duration-300 bg-white" id="mp-csv-import-card">
                     <div className="flex items-center gap-2.5 text-slate-500 mb-4">
-                      <div className="p-2 bg-indigo-50 text-indigo-650 rounded-2xl border border-indigo-100 shadow-2xs">
+                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-2xl border border-indigo-100 shadow-2xs">
                         <Upload className="w-5 h-5 text-indigo-500 shrink-0 animate-bounce" />
                       </div>
                       <div>
@@ -1556,6 +1592,48 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                       </div>
                     </div>
                   </div>
+
+                  {/* Mercado Pago Screenshot Scan Card */}
+                  <div className="glass-card rounded-3xl p-6 md:p-8 border border-slate-200/85 hover:shadow-md transition-all duration-300 bg-white mt-6" id="mp-screenshot-scan-card">
+                    <div className="flex items-center gap-2.5 text-slate-500 mb-4">
+                      <div className="p-2 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-100 shadow-2xs">
+                        <Camera className="w-5 h-5 text-emerald-500 shrink-0" />
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-400 block leading-none">
+                          Escaneo Visual
+                        </span>
+                        <h3 className="text-base font-black text-slate-900 mt-1">
+                          Escanear Captura de Mercado Pago
+                        </h3>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-500 mb-5 leading-relaxed font-semibold">
+                      Toma una captura de pantalla del detalle de un movimiento en Mercado Pago y súbela aquí. El Asistente de IA analizará la imagen, extraerá los datos (concepto, monto, fecha, ID de transacción) y te mostrará la tarjeta de confirmación para registrarlo sin duplicados.
+                    </p>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleMPScreenshotChange}
+                        className="hidden"
+                        id="mp-screenshot-upload-input"
+                      />
+                      <label
+                        htmlFor="mp-screenshot-upload-input"
+                        className="flex items-center justify-center gap-2 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black cursor-pointer shadow-sm hover:shadow active:scale-97 transition duration-150 shrink-0 select-none"
+                      >
+                        <Camera className="w-4 h-4 shrink-0" />
+                        <span>Subir Captura de Mercado Pago</span>
+                      </label>
+
+                      <div className="text-slate-450 text-[10.5px] font-bold leading-relaxed max-w-md font-medium">
+                        La imagen se procesa de forma segura a través de la API de Gemini utilizando visión artificial.
+                      </div>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <MonthlyHistory history={monthlyHistory} onDeleteMonth={handleDeleteHistoryMonth} />
@@ -1572,7 +1650,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                     onClick={() => setShoppingTab('list')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${shoppingTab === 'list'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <ListTodo className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1582,7 +1660,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                     onClick={() => setShoppingTab('stores')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${shoppingTab === 'stores'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <Store className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1670,7 +1748,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                     onClick={() => setReportTab('calendar')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${reportTab === 'calendar'
                         ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-650 hover:text-slate-900 hover:bg-white/40'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <Calendar className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1811,7 +1889,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             </div>
 
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-slate-650 leading-relaxed">
+              <p className="text-xs font-semibold text-slate-600 leading-relaxed">
                 Selecciona la información que deseas exportar en formato <strong>CSV (delimitado por comas)</strong>:
               </p>
               
@@ -1925,7 +2003,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   Leídas: <span className="text-slate-900 font-black">{importPreview.length}</span>
                 </span>
                 <span className="text-slate-300">|</span>
-                <span className="flex items-center gap-1 text-emerald-650 font-bold">
+                <span className="flex items-center gap-1 text-emerald-600 font-bold">
                   Nuevas: <span className="text-emerald-700 font-black">{importPreview.filter(t => !t.isDuplicate).length}</span>
                 </span>
                 <span className="text-slate-300">|</span>
@@ -1951,7 +2029,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                 <button
                   onClick={handleClassifyWithAI}
                   disabled={isAIClassifying}
-                  className="flex items-center justify-center gap-2 px-4.5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-650 hover:from-violet-755 hover:to-indigo-750 text-white rounded-xl text-xs font-black shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                  className="flex items-center justify-center gap-2 px-4.5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-755 hover:to-indigo-750 text-white rounded-xl text-xs font-black shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 text-violet-200 animate-pulse shrink-0" />
                   <span>{isAIClassifying ? 'Clasificando con Gemini...' : 'Clasificar ambiguas con IA'}</span>
@@ -1997,7 +2075,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                                   return prev.map(p => p.tempId === item.tempId ? { ...p, excluded: !e.target.checked } : p);
                                 });
                               }}
-                              className="rounded border-slate-350 text-indigo-650 focus:ring-indigo-500 w-4.5 h-4.5 cursor-pointer"
+                              className="rounded border-slate-350 text-indigo-600 focus:ring-indigo-500 w-4.5 h-4.5 cursor-pointer"
                             />
                           </td>
 
@@ -2208,6 +2286,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
         onDepositToApartado={handleDepositToApartado}
         onWithdrawFromApartado={handleWithdrawFromApartado}
         onDeleteApartado={handleDeleteApartado}
+        externalAITrigger={externalAITrigger}
       />
 
     </div>

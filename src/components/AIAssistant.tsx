@@ -29,6 +29,27 @@ import {
 import { ShoppingItem, ArchivedItem, ServicePayment, Category, PaymentMethod, PREDEFINED_CATEGORIES, Income, MonthlyHistoryRecord, Apartado } from '../types';
 import AIAssistantSettings, { GEMINI_MODELS } from './AIAssistantSettings';
 
+// Obfuscation helpers for API key storage (prevents casual plain-text exposure in localStorage)
+const encodeApiKey = (key: string): string => {
+  try { return btoa(key); } catch { return key; }
+};
+const decodeApiKey = (encoded: string): string => {
+  try { return atob(encoded); } catch { return encoded; }
+};
+
+// Migration: if existing key is stored unencoded (plain text starting with 'AIza'), re-encode it
+const loadApiKey = (): string => {
+  const stored = localStorage.getItem('cobuy_gemini_api_key') || '';
+  if (!stored) return '';
+  // Plain-text Gemini keys start with 'AIza' — migrate to encoded
+  if (stored.startsWith('AIza')) {
+    const encoded = encodeApiKey(stored);
+    localStorage.setItem('cobuy_gemini_api_key', encoded);
+    return stored;
+  }
+  return decodeApiKey(stored);
+};
+
 // Types for Chat Messages
 interface ChatMessage {
   id: string;
@@ -82,6 +103,11 @@ interface AIAssistantProps {
   onDepositToApartado?: (id: string, amount: number) => void;
   onWithdrawFromApartado?: (id: string, amount: number) => void;
   onDeleteApartado?: (id: string) => void;
+  externalAITrigger?: {
+    image: string;
+    text: string;
+    timestamp: number;
+  };
 }
 
 // Premium Error Translation Parser for Gemini API
@@ -337,14 +363,19 @@ export default function AIAssistant({
   currentMonth = '',
   onAddIncome,
   onDeleteIncome,
-  apartados = []
+  apartados = [],
+  onAddApartado,
+  onDepositToApartado,
+  onWithdrawFromApartado,
+  onDeleteApartado,
+  externalAITrigger
 }: AIAssistantProps) {
   // Assistant drawer state
   const [isOpen, setIsOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   // Gemini API Configuration
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('cobuy_gemini_api_key') || '');
+  const [apiKey, setApiKey] = useState(() => loadApiKey());
   const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('cobuy_gemini_selected_model') || 'gemini-2.5-flash');
   const [autoFailover, setAutoFailover] = useState(() => {
     const saved = localStorage.getItem('cobuy_gemini_auto_failover');
@@ -453,7 +484,7 @@ export default function AIAssistant({
   // Save configurations in LocalStorage
   const handleSaveApiKey = (key: string) => {
     setApiKey(key);
-    localStorage.setItem('cobuy_gemini_api_key', key);
+    localStorage.setItem('cobuy_gemini_api_key', encodeApiKey(key));
     if (key) setShowSettings(false);
   };
 
@@ -590,7 +621,16 @@ Reglas importantes:
     - Si el usuario menciona varios artículos CON precios individuales (ej: "Compré leche $30, pan $20 y huevos $50"), usa 'add_multiple_items_proposed' con el precio de cada artículo en su campo 'price' y NO envíes 'totalPrice'.
     - Si el usuario menciona artículos sin ningún precio, no envíes 'totalPrice' ni precios individuales (dejar en 0).
 11. REGISTRO DE INGRESOS: Si el usuario menciona haber recibido dinero (por ejemplo: 'Me pagaron mi nómina de $10,000 en tarjeta', 'Registra un ingreso de $500 en efectivo por un regalo' o 'Me llegó una lana extra de $1200'), debes proponer la tarjeta de confirmación correspondiente llamando a 'add_income_proposed' inmediatamente. Si no especifica el método de pago (efectivo o tarjeta), invoca la herramienta sin enviarlo (o déjalo vacío) para que el usuario elija su destino interactivamente.
-12. APARTADOS DE AHORRO (RESERVAS): Si el usuario solicita resguardar o separar dinero (por ejemplo: 'Quiero guardar $1000 en efectivo para la Renta', 'Crea un apartado de ahorro llamado Viaje con $500 en tarjeta' o 'Sepárame $200 de mi presupuesto'), debes proponer la tarjeta correspondiente llamando a 'add_apartado_proposed'. Si desea depositar o meter más dinero en un apartado existente, llama a 'deposit_to_apartado_proposed'. Si desea retirar o sacar dinero de un apartado existente, llama a 'withdraw_from_apartado_proposed'. Si desea eliminar/borrar un apartado existente por completo, llama a 'delete_apartado_proposed'.
+12. APARTADOS DE AHORRO (RESERVAS): Si el usuario solicita resguardar o separar dinero (por ejemplo: \'Quiero guardar $1000 en efectivo para la Renta\', \'Crea un apartado de ahorro llamado Viaje con $500 en tarjeta\' o \'Sepárame $200 de mi presupuesto\'), debes proponer la tarjeta correspondiente llamando a \'add_apartado_proposed\'. Si desea depositar o meter más dinero en un apartado existente, llama a \'deposit_to_apartado_proposed\'. Si desea retirar o sacar dinero de un apartado existente, llama a \'withdraw_from_apartado_proposed\'. Si desea eliminar/borrar un apartado existente por completo, llama a \'delete_apartado_proposed\'.
+13. ESCANEO DE CAPTURAS DE PANTALLA DE MOVIMIENTOS (Ej. Mercado Pago):
+    Si el usuario sube una captura de pantalla que muestra una lista de movimientos/transacciones de uno o varios días (con montos positivos, negativos, fechas como "2 de junio" o "1 de junio", y horas como "22:11"), debes:
+    - Extraer TODAS las transacciones válidas visibles en la imagen.
+    - Mapear cada transacción al método o herramienta correspondiente (llamando a múltiples herramientas en paralelo si es necesario):
+      * Ingresos (ej. "+ $374", "+ $1,800", "Transferencia recibida"): llama a \'add_income_proposed\'.
+      * Pagos de servicios recurrentes/suscripciones/taxis/telefónicas/recargas (ej. "Pago - $50 Telcel", "DiDi", "Uber", "Netflix"): llama a \'add_service_proposed\'.
+      * Compras generales o envíos de dinero (ej. "- $160 Chipi", "Pago supermercado"): llama a \'add_item_proposed\' con \'bought = true\'.
+      * Movimientos de apartados/ahorros (ej. "Monto retirado Ahorros", "Monto apartado Renta"): llama a \'withdraw_from_apartado_proposed\' o \'deposit_to_apartado_proposed\'.
+    - Calcular y pasar la fecha real en el parámetro \'createdAt\'. Traduce expresiones de fecha relativas como "2 de junio" a una fecha completa ISO 8601 (YYYY-MM-DDTHH:MM:SS) o "YYYY-MM-DD" deduciendo el año del día de hoy (${new Date().getFullYear()}). Por ejemplo: "2 de junio" con hora "22:11" se convierte en "${new Date().getFullYear()}-06-02T22:11:00".
 `;
 
     // Tools definition
@@ -609,7 +649,9 @@ Reglas importantes:
                 quantity: { type: 'NUMBER', description: 'Cantidad de artículos' },
                 category: { type: 'STRING', description: 'Categoría. Debe ser una de las existentes: comida, hogar, tecnologia, ropa, salud, otros. Intenta clasificarlo adecuadamente.' },
                 paymentMethod: { type: 'STRING', description: 'Método de pago utilizado. Opciones: efectivo, tarjeta, transferencia. Si no se puede inferir del recibo, dejar en blanco.' },
-                bought: { type: 'BOOLEAN', description: 'Si la compra ya se efectuó (true) o si es un plan futuro/pendiente (false)' }
+                bought: { type: 'BOOLEAN', description: 'Si la compra ya se efectuó (true) o si es un plan futuro/pendiente (false)' },
+                externalId: { type: 'STRING', description: 'ID de transacción o número de operación de Mercado Pago (opcional)' },
+                createdAt: { type: 'STRING', description: 'Fecha y hora real del movimiento en formato ISO 8601 o YYYY-MM-DD (opcional)' }
               },
               required: ['name', 'bought']
             }
@@ -652,7 +694,9 @@ Reglas importantes:
                 amount: { type: 'NUMBER', description: 'Monto total pagado por el servicio' },
                 paymentMethod: { type: 'STRING', description: 'Método de pago (efectivo, tarjeta, transferencia)' },
                 isRecurring: { type: 'BOOLEAN', description: 'Indica si es una suscripción recurrente todos los meses (true) o cobro único (false)' },
-                recurringDay: { type: 'NUMBER', description: 'Día de cobro programado del mes (1 al 31) si es recurrente' }
+                recurringDay: { type: 'NUMBER', description: 'Día de cobro programado del mes (1 al 31) si es recurrente' },
+                externalId: { type: 'STRING', description: 'ID de transacción o número de operación de Mercado Pago (opcional)' },
+                createdAt: { type: 'STRING', description: 'Fecha y hora real del movimiento en formato ISO 8601 o YYYY-MM-DD (opcional)' }
               },
               required: ['service', 'amount']
             }
@@ -795,7 +839,9 @@ Reglas importantes:
               properties: {
                 name: { type: 'STRING', description: 'Nombre o concepto del ingreso (ej: Nómina quincenal, Venta de consola, Regalo)' },
                 amount: { type: 'NUMBER', description: 'Monto del ingreso en pesos/dólares' },
-                paymentMethod: { type: 'STRING', description: 'Destino del dinero. Debe ser "efectivo" para efectivo o "tarjeta" para tarjeta/banco. Si no se puede inferir del mensaje, dejar en blanco para que el usuario elija.' }
+                paymentMethod: { type: 'STRING', description: 'Destino del dinero. Debe ser "efectivo" para efectivo o "tarjeta" para tarjeta/banco. Si no se puede inferir del mensaje, dejar en blanco para que el usuario elija.' },
+                externalId: { type: 'STRING', description: 'ID de transacción o número de operación de Mercado Pago (opcional)' },
+                createdAt: { type: 'STRING', description: 'Fecha y hora real del movimiento en formato ISO 8601 o YYYY-MM-DD (opcional)' }
               },
               required: ['name', 'amount']
             }
@@ -943,11 +989,12 @@ Reglas importantes:
     try {
       recordApiRequest();
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${apiKey.trim()}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent`,
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey.trim()
           },
           body: JSON.stringify(requestBody)
         }
@@ -997,6 +1044,133 @@ Reglas importantes:
 
   const isRpmExceeded = rpmCount >= activeLimits.rpm;
   const isRpdExceeded = rpdCount >= activeLimits.rpd;
+
+  const sendAutoMessage = async (text: string, imageBase64: string) => {
+    const userMessageId = `user-${Date.now()}`;
+    const assistantMessageId = `assistant-${Date.now()}`;
+
+    // Add user message to state
+    setMessages(prev => [
+      ...prev,
+      {
+        id: userMessageId,
+        sender: 'user',
+        text: 'Procesando captura de pantalla de Mercado Pago...',
+        image: imageBase64,
+        status: 'done'
+      }
+    ]);
+
+    setIsSending(true);
+
+    // Add assistant loading message
+    setMessages(prev => [
+      ...prev,
+      {
+        id: assistantMessageId,
+        sender: 'assistant',
+        status: 'loading'
+      }
+    ]);
+
+    try {
+      const { responseData, modelUsed } = await callGemini(text, imageBase64, selectedModel);
+
+      const candidate = responseData?.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+
+      let modelResponseText = '';
+      const functionCalls: any[] = [];
+      for (const part of parts) {
+        if (part.text) {
+          modelResponseText += part.text;
+        }
+        if (part.functionCall) {
+          functionCalls.push(part.functionCall);
+        }
+      }
+
+      setMessages(prev => {
+        const loadingIdx = prev.findIndex(msg => msg.id === assistantMessageId);
+        if (loadingIdx === -1) return prev;
+
+        const updated = [...prev];
+        const firstCall = functionCalls[0];
+
+        updated[loadingIdx] = {
+          id: assistantMessageId,
+          sender: 'assistant',
+          status: 'done',
+          modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
+          text: modelResponseText || (firstCall ? `Tengo una propuesta basada en tu captura de Mercado Pago (1 de ${functionCalls.length}):` : 'Extraje la información, pero no se reconoció una acción específica para guardar.'),
+          toolCall: firstCall ? {
+            name: firstCall.name,
+            args: firstCall.args,
+            status: 'pending'
+          } : undefined
+        };
+
+        for (let i = 1; i < functionCalls.length; i++) {
+          const call = functionCalls[i];
+          updated.push({
+            id: `assistant-${Date.now()}-${i}`,
+            sender: 'assistant',
+            status: 'done',
+            modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
+            text: `Tengo otra propuesta basada en tu captura (${i + 1} de ${functionCalls.length}):`,
+            toolCall: {
+              name: call.name,
+              args: call.args,
+              status: 'pending'
+            }
+          });
+        }
+
+        return updated;
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      setMessages(prev =>
+        prev.map(msg => {
+          if (msg.id === assistantMessageId) {
+            return {
+              ...msg,
+              status: 'error',
+              text: err.message || 'Ocurrió un error inesperado al conectar con Google Gemini.'
+            };
+          }
+          return msg;
+        })
+      );
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const lastProcessedTriggerRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (externalAITrigger && externalAITrigger.image && externalAITrigger.timestamp > lastProcessedTriggerRef.current) {
+      lastProcessedTriggerRef.current = externalAITrigger.timestamp;
+
+      if (!isOpen) {
+        setIsOpen(true);
+      }
+
+      if (messages.length === 0) {
+        setMessages([
+          {
+            id: 'welcome',
+            sender: 'assistant',
+            text: `¡Hola, ${userName}! Soy ${assistantName}, tu asistente de compras con Google Gemini. Puedes pedirme que agregue artículos, registre pagos de servicios, actualice tus presupuestos o subas una foto de un recibo para escanearlo. ¿En qué te ayudo hoy?`
+          }
+        ]);
+      }
+
+      sendAutoMessage(externalAITrigger.text, externalAITrigger.image);
+    }
+  }, [externalAITrigger]);
 
   // Submit Text/Image message
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -1049,43 +1223,55 @@ Reglas importantes:
       const candidate = responseData?.candidates?.[0];
       const parts = candidate?.content?.parts || [];
 
-      // Search ALL parts for text and functionCall — Gemini can place them in any order
       let modelResponseText = '';
-      let functionCall: any = null;
+      const functionCalls: any[] = [];
       for (const part of parts) {
-        if (part.text && !modelResponseText) {
-          modelResponseText = part.text;
+        if (part.text) {
+          modelResponseText += part.text;
         }
-        if (part.functionCall && !functionCall) {
-          functionCall = part.functionCall;
+        if (part.functionCall) {
+          functionCalls.push(part.functionCall);
         }
       }
 
-      setMessages(prev =>
-        prev.map(msg => {
-          if (msg.id === assistantMessageId) {
-            const updatedMsg: ChatMessage = {
-              ...msg,
-              status: 'done',
-              modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed
-            };
+      setMessages(prev => {
+        const loadingIdx = prev.findIndex(msg => msg.id === assistantMessageId);
+        if (loadingIdx === -1) return prev;
 
-            if (functionCall) {
-              updatedMsg.toolCall = {
-                name: functionCall.name,
-                args: functionCall.args,
-                status: 'pending'
-              };
-              updatedMsg.text = modelResponseText || 'Tengo una propuesta para ti. Por favor, confirma los detalles a continuación:';
-            } else {
-              updatedMsg.text = modelResponseText || 'Entendido. Si tienes alguna duda, dime.';
+        const updated = [...prev];
+        const firstCall = functionCalls[0];
+
+        updated[loadingIdx] = {
+          id: assistantMessageId,
+          sender: 'assistant',
+          status: 'done',
+          modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
+          text: modelResponseText || (firstCall ? `Tengo una propuesta para ti (1 de ${functionCalls.length}):` : 'Entendido. Si tienes alguna duda, dime.'),
+          toolCall: firstCall ? {
+            name: firstCall.name,
+            args: firstCall.args,
+            status: 'pending'
+          } : undefined
+        };
+
+        for (let i = 1; i < functionCalls.length; i++) {
+          const call = functionCalls[i];
+          updated.push({
+            id: `assistant-${Date.now()}-${i}`,
+            sender: 'assistant',
+            status: 'done',
+            modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
+            text: `Tengo otra propuesta (${i + 1} de ${functionCalls.length}):`,
+            toolCall: {
+              name: call.name,
+              args: call.args,
+              status: 'pending'
             }
+          });
+        }
 
-            return updatedMsg;
-          }
-          return msg;
-        })
-      );
+        return updated;
+      });
 
     } catch (err: any) {
       console.error(err);
@@ -1140,41 +1326,54 @@ Reglas importantes:
       const parts = candidate?.content?.parts || [];
 
       let modelResponseText = '';
-      let functionCall: any = null;
+      const functionCalls: any[] = [];
       for (const part of parts) {
-        if (part.text && !modelResponseText) {
-          modelResponseText = part.text;
+        if (part.text) {
+          modelResponseText += part.text;
         }
-        if (part.functionCall && !functionCall) {
-          functionCall = part.functionCall;
+        if (part.functionCall) {
+          functionCalls.push(part.functionCall);
         }
       }
 
-      setMessages(prev =>
-        prev.map(msg => {
-          if (msg.id === errorMessageId) {
-            const updatedMsg: ChatMessage = {
-              ...msg,
-              status: 'done',
-              modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed
-            };
+      setMessages(prev => {
+        const errIdx = prev.findIndex(msg => msg.id === errorMessageId);
+        if (errIdx === -1) return prev;
 
-            if (functionCall) {
-              updatedMsg.toolCall = {
-                name: functionCall.name,
-                args: functionCall.args,
-                status: 'pending'
-              };
-              updatedMsg.text = modelResponseText || 'Tengo una propuesta para ti. Por favor, confirma los detalles a continuación:';
-            } else {
-              updatedMsg.text = modelResponseText || 'Entendido. Si tienes alguna duda, dime.';
+        const updated = [...prev];
+        const firstCall = functionCalls[0];
+
+        updated[errIdx] = {
+          id: errorMessageId,
+          sender: 'assistant',
+          status: 'done',
+          modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
+          text: modelResponseText || (firstCall ? `Tengo una propuesta para ti (1 de ${functionCalls.length}):` : 'Entendido. Si tienes alguna duda, dime.'),
+          toolCall: firstCall ? {
+            name: firstCall.name,
+            args: firstCall.args,
+            status: 'pending'
+          } : undefined
+        };
+
+        for (let i = 1; i < functionCalls.length; i++) {
+          const call = functionCalls[i];
+          updated.push({
+            id: `assistant-${Date.now()}-${i}`,
+            sender: 'assistant',
+            status: 'done',
+            modelUsed: GEMINI_MODELS.find(m => m.id === modelUsed)?.name || modelUsed,
+            text: `Tengo otra propuesta (${i + 1} de ${functionCalls.length}):`,
+            toolCall: {
+              name: call.name,
+              args: call.args,
+              status: 'pending'
             }
+          });
+        }
 
-            return updatedMsg;
-          }
-          return msg;
-        })
-      );
+        return updated;
+      });
 
     } catch (err: any) {
       console.error(err);
@@ -1208,7 +1407,9 @@ Reglas importantes:
   };
 
   const executeToggleItemBought = (args: { name: string }) => {
-    const item = items.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del artículo.';
+    const targetName = args.name.toLowerCase();
+    const item = items.find(i => i.name.toLowerCase().includes(targetName));
     if (item) {
       onToggleBought(item.id);
       return `Se marcó '${item.name}' como ${!item.bought ? 'Comprado' : 'Pendiente'}.`;
@@ -1217,7 +1418,9 @@ Reglas importantes:
   };
 
   const executeDeleteItem = (args: { name: string }) => {
-    const item = items.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del artículo.';
+    const targetName = args.name.toLowerCase();
+    const item = items.find(i => i.name.toLowerCase().includes(targetName));
     if (item) {
       onDeleteItem(item.id);
       return `Se eliminó/archivó '${item.name}' correctamente.`;
@@ -1226,7 +1429,9 @@ Reglas importantes:
   };
 
   const executeDeleteServicePayment = (args: { service: string }) => {
-    const payment = servicePayments.find(p => p.service.toLowerCase().includes(args.service.toLowerCase()));
+    if (!args || !args.service) return 'Por favor especifica el nombre del servicio.';
+    const targetName = args.service.toLowerCase();
+    const payment = servicePayments.find(p => p.service.toLowerCase().includes(targetName));
     if (payment) {
       onDeleteServicePayment(payment.id);
       return `Se eliminó el pago de servicio de '${payment.service}' por $${payment.amount}.`;
@@ -1235,22 +1440,27 @@ Reglas importantes:
   };
 
   const executeAddCategory = (args: { name: string }) => {
+    if (!args || !args.name) return 'Por favor especifica el nombre de la categoría.';
     onAddCategory(args.name);
     return `Se creó la categoría personalizada '${args.name}'.`;
   };
 
   const executeAddPlace = (args: { name: string }) => {
+    if (!args || !args.name) return 'Por favor especifica el nombre del establecimiento.';
     onAddPlace(args.name);
     return `Se registró '${args.name}' como establecimiento frecuente.`;
   };
 
   const executeAddServiceOption = (args: { name: string }) => {
+    if (!args || !args.name) return 'Por favor especifica el nombre del servicio.';
     onAddServiceOption(args.name);
     return `Se añadió '${args.name}' como servicio frecuente.`;
   };
 
   const executeRestoreItem = (args: { name: string }) => {
-    const item = archivedItems.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del artículo.';
+    const targetName = args.name.toLowerCase();
+    const item = archivedItems.find(i => i.name.toLowerCase().includes(targetName));
     if (item) {
       onRestoreItem(item.id);
       return `Se restauró '${item.name}' a la lista de compras activa.`;
@@ -1259,7 +1469,9 @@ Reglas importantes:
   };
 
   const executePurgeArchivedItem = (args: { name: string }) => {
-    const item = archivedItems.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del artículo.';
+    const targetName = args.name.toLowerCase();
+    const item = archivedItems.find(i => i.name.toLowerCase().includes(targetName));
     if (item) {
       onPurgeArchivedItem(item.id);
       return `Se eliminó definitivamente '${item.name}' de la papelera/historial.`;
@@ -1274,7 +1486,9 @@ Reglas importantes:
 
   const executeDeleteIncome = (args: { name: string }) => {
     if (!incomes || !onDeleteIncome) return 'La función de eliminar ingresos no está disponible en este momento.';
-    const target = incomes.find(inc => inc.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del ingreso.';
+    const targetName = args.name.toLowerCase();
+    const target = incomes.find(inc => inc.name.toLowerCase().includes(targetName));
     if (target) {
       onDeleteIncome(target.id);
       return `Se eliminó el ingreso de '${target.name}' por un monto de $${target.amount}.`;
@@ -1284,7 +1498,9 @@ Reglas importantes:
 
   const executeDepositToApartado = (args: { name: string; amount: number }) => {
     if (!apartados || !onDepositToApartado) return 'La función de depositar a apartados no está disponible.';
-    const target = apartados.find(a => a.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del apartado.';
+    const targetName = args.name.toLowerCase();
+    const target = apartados.find(a => a.name.toLowerCase().includes(targetName));
     if (target) {
       onDepositToApartado(target.id, args.amount);
       return `Se depositaron $${args.amount} en el apartado de ahorro '${target.name}'.`;
@@ -1294,7 +1510,9 @@ Reglas importantes:
 
   const executeWithdrawFromApartado = (args: { name: string; amount: number }) => {
     if (!apartados || !onWithdrawFromApartado) return 'La función de retirar de apartados no está disponible.';
-    const target = apartados.find(a => a.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del apartado.';
+    const targetName = args.name.toLowerCase();
+    const target = apartados.find(a => a.name.toLowerCase().includes(targetName));
     if (target) {
       onWithdrawFromApartado(target.id, args.amount);
       return `Se retiraron $${args.amount} del apartado de ahorro '${target.name}'.`;
@@ -1304,7 +1522,9 @@ Reglas importantes:
 
   const executeDeleteApartado = (args: { name: string }) => {
     if (!apartados || !onDeleteApartado) return 'La función de eliminar apartados no está disponible.';
-    const target = apartados.find(a => a.name.toLowerCase().includes(args.name.toLowerCase()));
+    if (!args || !args.name) return 'Por favor especifica el nombre del apartado.';
+    const targetName = args.name.toLowerCase();
+    const target = apartados.find(a => a.name.toLowerCase().includes(targetName));
     if (target) {
       onDeleteApartado(target.id);
       return `Se eliminó el apartado de ahorro '${target.name}' y sus fondos se regresaron al presupuesto libre.`;
@@ -1330,7 +1550,9 @@ Reglas importantes:
           quantity: Number(finalArgs.quantity) || 1,
           category: finalArgs.category || 'otros',
           paymentMethod: (finalArgs.paymentMethod as PaymentMethod) || 'tarjeta',
-          bought: !!finalArgs.bought
+          bought: !!finalArgs.bought,
+          externalId: finalArgs.externalId || undefined,
+          createdAt: finalArgs.createdAt || undefined
         };
         onAddItem(itemData);
         feedbackText = `¡Registrado! Se añadió '${itemData.name}' (${itemData.bought ? 'Comprado' : 'Pendiente'}) en ${itemData.place} por $${(itemData.price * itemData.quantity).toFixed(2)}.`;
@@ -1361,7 +1583,9 @@ Reglas importantes:
           amount: Number(finalArgs.amount) || 0,
           paymentMethod: (finalArgs.paymentMethod as PaymentMethod) || 'tarjeta',
           isRecurring: finalArgs.isRecurring !== undefined ? !!finalArgs.isRecurring : undefined,
-          recurringDay: finalArgs.recurringDay !== undefined ? Number(finalArgs.recurringDay) : undefined
+          recurringDay: finalArgs.recurringDay !== undefined ? Number(finalArgs.recurringDay) : undefined,
+          externalId: finalArgs.externalId || undefined,
+          createdAt: finalArgs.createdAt || undefined
         };
         onAddServicePayment(serviceData);
         feedbackText = `¡Servicio registrado! Se añadió el pago de '${serviceData.service}' por $${serviceData.amount.toFixed(2)}${serviceData.isRecurring ? ` (Recurrente el día ${serviceData.recurringDay})` : ''
@@ -1383,21 +1607,26 @@ Reglas importantes:
         feedbackText = executeDeleteServicePayment(finalArgs);
       }
       else if (toolName === 'update_item_proposed') {
-        const item = items.find(i => i.name.toLowerCase().includes(finalArgs.name.toLowerCase()));
-        if (!item) {
-          feedbackText = `No se encontró ningún artículo activo con el nombre '${finalArgs.name}' para modificar.`;
+        if (!finalArgs || !finalArgs.name) {
+          feedbackText = 'Falta especificar el nombre del artículo a modificar.';
         } else {
-          const updatedFields: Partial<ShoppingItem> = {};
-          if (finalArgs.newName !== undefined) updatedFields.name = finalArgs.newName;
-          if (finalArgs.place !== undefined) updatedFields.place = finalArgs.place;
-          if (finalArgs.price !== undefined) updatedFields.price = Number(finalArgs.price);
-          if (finalArgs.quantity !== undefined) updatedFields.quantity = Number(finalArgs.quantity);
-          if (finalArgs.category !== undefined) updatedFields.category = finalArgs.category;
-          if (finalArgs.paymentMethod !== undefined) updatedFields.paymentMethod = finalArgs.paymentMethod as PaymentMethod;
-          if (finalArgs.bought !== undefined) updatedFields.bought = !!finalArgs.bought;
+          const targetName = finalArgs.name.toLowerCase();
+          const item = items.find(i => i.name.toLowerCase().includes(targetName));
+          if (!item) {
+            feedbackText = `No se encontró ningún artículo activo con el nombre '${finalArgs.name}' para modificar.`;
+          } else {
+            const updatedFields: Partial<ShoppingItem> = {};
+            if (finalArgs.newName !== undefined) updatedFields.name = finalArgs.newName;
+            if (finalArgs.place !== undefined) updatedFields.place = finalArgs.place;
+            if (finalArgs.price !== undefined) updatedFields.price = Number(finalArgs.price);
+            if (finalArgs.quantity !== undefined) updatedFields.quantity = Number(finalArgs.quantity);
+            if (finalArgs.category !== undefined) updatedFields.category = finalArgs.category;
+            if (finalArgs.paymentMethod !== undefined) updatedFields.paymentMethod = finalArgs.paymentMethod as PaymentMethod;
+            if (finalArgs.bought !== undefined) updatedFields.bought = !!finalArgs.bought;
 
-          onUpdateItem(item.id, updatedFields);
-          feedbackText = `¡Modificado! Se actualizó '${item.name}' con los nuevos valores indicados.`;
+            onUpdateItem(item.id, updatedFields);
+            feedbackText = `¡Modificado! Se actualizó '${item.name}' con los nuevos valores indicados.`;
+          }
         }
       }
       else if (toolName === 'add_category') {
@@ -1419,7 +1648,9 @@ Reglas importantes:
         const incomeData = {
           name: finalArgs.name,
           amount: Number(finalArgs.amount) || 0,
-          paymentMethod: finalArgs.paymentMethod as 'efectivo' | 'tarjeta'
+          paymentMethod: finalArgs.paymentMethod as 'efectivo' | 'tarjeta',
+          externalId: finalArgs.externalId || undefined,
+          createdAt: finalArgs.createdAt || undefined
         };
         if (onAddIncome) {
           onAddIncome(incomeData);
@@ -1705,6 +1936,9 @@ Reglas importantes:
                             categories={categories}
                             items={items}
                             apartados={apartados}
+                            servicePayments={servicePayments}
+                            incomes={incomes}
+                            monthlyHistory={monthlyHistory}
                           />
                         </div>
                       )}
@@ -1821,7 +2055,6 @@ Reglas importantes:
                     ref={fileInputRef}
                     onChange={handleImageChange}
                     accept="image/*"
-                    capture="environment"
                     className="hidden"
                   />
 
@@ -1878,11 +2111,11 @@ Reglas importantes:
                     <span>Límites ({selectedModel.includes('pro') ? 'Pro' : 'Flash'}):</span>
                   </div>
                   <div className="flex gap-2">
-                    <span className={isRpmExceeded ? 'text-rose-650 font-extrabold' : isNearRpmLimit ? 'text-amber-600 font-extrabold' : 'text-slate-500'}>
+                    <span className={isRpmExceeded ? 'text-rose-600 font-extrabold' : isNearRpmLimit ? 'text-amber-600 font-extrabold' : 'text-slate-500'}>
                       Minuto: {rpmCount}/{activeLimits.rpm}
                     </span>
                     <span className="text-slate-200">|</span>
-                    <span className={isRpdExceeded ? 'text-rose-650 font-extrabold' : isNearRpdLimit ? 'text-amber-600 font-extrabold' : 'text-slate-500'}>
+                    <span className={isRpdExceeded ? 'text-rose-600 font-extrabold' : isNearRpdLimit ? 'text-amber-600 font-extrabold' : 'text-slate-500'}>
                       Día: {rpdCount}/{activeLimits.rpd}
                     </span>
                   </div>
@@ -1907,6 +2140,9 @@ interface ConfirmationCardProps {
   categories: Category[];
   items: ShoppingItem[];
   apartados?: Apartado[];
+  servicePayments?: ServicePayment[];
+  incomes?: Income[];
+  monthlyHistory?: MonthlyHistoryRecord[];
   onConfirm: (messageId: string, customArgs: any) => void;
   onReject: (messageId: string) => void;
 }
@@ -1918,6 +2154,9 @@ function ConfirmationCard({
   categories,
   items,
   apartados = [],
+  servicePayments = [],
+  incomes = [],
+  monthlyHistory = [],
   onConfirm,
   onReject
 }: ConfirmationCardProps) {
@@ -1974,11 +2213,25 @@ function ConfirmationCard({
       if (!args.paymentMethod) args.paymentMethod = ''; // let user choose
     }
     else if (toolName === 'deposit_to_apartado_proposed' || toolName === 'withdraw_from_apartado_proposed') {
-      if (!args.name) args.name = '';
+      if (args.name) {
+        const match = (apartados || []).find((a: Apartado) => a.name.toLowerCase().includes(args.name.toLowerCase()));
+        if (match) {
+          args.name = match.name;
+        }
+      } else {
+        args.name = '';
+      }
       if (args.amount === undefined) args.amount = 0;
     }
     else if (toolName === 'delete_apartado_proposed') {
-      if (!args.name) args.name = '';
+      if (args.name) {
+        const match = (apartados || []).find((a: Apartado) => a.name.toLowerCase().includes(args.name.toLowerCase()));
+        if (match) {
+          args.name = match.name;
+        }
+      } else {
+        args.name = '';
+      }
     }
     else if (toolName === 'update_item_proposed') {
       const existing = items.find(i => i.name.toLowerCase().includes(args.name.toLowerCase()));
@@ -2005,6 +2258,75 @@ function ConfirmationCard({
   });
 
   const [paymentMethodMissing, setPaymentMethodMissing] = useState(false);
+
+  const checkDuplicate = () => {
+    const existingIds = new Set<string>();
+    items.forEach(i => i.externalId && existingIds.add(i.externalId));
+    servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
+    incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
+    monthlyHistory.forEach(h => {
+      h.items.forEach(i => i.externalId && existingIds.add(i.externalId));
+      h.servicePayments.forEach(s => s.externalId && existingIds.add(s.externalId));
+      h.incomes.forEach(inc => inc.externalId && existingIds.add(inc.externalId));
+    });
+
+    const externalId = editedArgs.externalId;
+    if (externalId && existingIds.has(externalId)) {
+      return { type: 'exact', details: `Transacción ya registrada con ID: ${externalId}` };
+    }
+
+    // Fuzzy check
+    let name = '';
+    let amount = 0;
+    if (toolName === 'add_item_proposed') {
+      name = editedArgs.name || '';
+      amount = Number(editedArgs.price) * (Number(editedArgs.quantity) || 1);
+    } else if (toolName === 'add_service_proposed') {
+      name = editedArgs.service || '';
+      amount = Number(editedArgs.amount) || 0;
+    } else if (toolName === 'add_income_proposed') {
+      name = editedArgs.name || '';
+      amount = Number(editedArgs.amount) || 0;
+    }
+
+    if (!name || !amount) return null;
+
+    const dateStr = (editedArgs.createdAt || new Date().toISOString()).slice(0, 10);
+    const toDateStr = (iso: string) => iso.slice(0, 10);
+    const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').trim();
+
+    const targetNorm = normalize(name);
+    const targetWords = targetNorm.split(/\s+/).filter(w => w.length >= 3);
+    const absAmount = Math.abs(amount);
+
+    const fuzzyIndex: { name: string; amount: number; dateStr: string; source: string }[] = [];
+    
+    items.forEach(i => {
+      fuzzyIndex.push({ name: normalize(i.name), amount: i.price * i.quantity, dateStr: toDateStr(i.createdAt), source: `Compra: ${i.name} ($${(i.price * i.quantity).toFixed(2)})` });
+    });
+    servicePayments.forEach(s => {
+      fuzzyIndex.push({ name: normalize(s.service), amount: s.amount, dateStr: toDateStr(s.createdAt), source: `Servicio: ${s.service} ($${s.amount.toFixed(2)})` });
+    });
+    incomes.forEach(inc => {
+      fuzzyIndex.push({ name: normalize(inc.name), amount: inc.amount, dateStr: toDateStr(inc.createdAt), source: `Ingreso: ${inc.name} ($${inc.amount.toFixed(2)})` });
+    });
+
+    for (const entry of fuzzyIndex) {
+      if (entry.dateStr !== dateStr) continue;
+      const amountDiff = Math.abs(entry.amount - absAmount);
+      if (amountDiff > absAmount * 0.02 && amountDiff > 0.01) continue;
+      
+      const entryWords = entry.name.split(/\s+/).filter(w => w.length >= 3);
+      const hasCommonWord = targetWords.some(cw => entryWords.some(ew => ew.includes(cw) || cw.includes(ew)));
+      if (hasCommonWord || amountDiff < 0.01) {
+        return { type: 'fuzzy', details: entry.source };
+      }
+    }
+
+    return null;
+  };
+
+  const duplicateStatus = checkDuplicate();
 
   // Checks validation of payment method before saving
   const handleValidateConfirm = () => {
@@ -2332,6 +2654,54 @@ function ConfirmationCard({
               </button>
             </div>
           </div>
+
+          {/* Optional custom date and external ID fields */}
+          {(editedArgs.createdAt || editedArgs.externalId) && (
+            <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100/60 animate-in fade-in duration-200">
+              {editedArgs.createdAt && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Fecha de Operación</label>
+                  <input
+                    type="date"
+                    value={editedArgs.createdAt.slice(0, 10)}
+                    onChange={(e) => handleFieldChange('createdAt', e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none"
+                  />
+                </div>
+              )}
+              {editedArgs.externalId && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">ID Transacción</label>
+                  <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-semibold text-slate-500 truncate" title={editedArgs.externalId}>
+                    {editedArgs.externalId}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {duplicateStatus && (
+            <div className={`p-3 rounded-xl border text-[11px] leading-relaxed font-semibold flex items-start gap-2 animate-in slide-in-from-bottom-2 duration-200 ${
+              duplicateStatus.type === 'exact' 
+                ? 'bg-rose-50 border-rose-200 text-rose-800' 
+                : 'bg-orange-50 border-orange-200 text-orange-850'
+            }`}>
+              <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${
+                duplicateStatus.type === 'exact' ? 'text-rose-500' : 'text-orange-500'
+              }`} />
+              <div>
+                <p className={`font-extrabold ${duplicateStatus.type === 'exact' ? 'text-rose-900' : 'text-orange-900'}`}>
+                  {duplicateStatus.type === 'exact' ? 'Duplicado Exacto Detectado' : 'Posible Duplicado Detectado'}
+                </p>
+                <p className="mt-0.5 text-[10px]">
+                  {duplicateStatus.type === 'exact' 
+                    ? `Esta transacción ya se encuentra registrada en la base de datos (ID: ${editedArgs.externalId}).`
+                    : `Existe un registro similar en la misma fecha y monto: ${duplicateStatus.details}`
+                  }
+                </p>
+              </div>
+            </div>
+          )}
 
           {paymentMethodMissing && !editedArgs.paymentMethod && (
             <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1">
@@ -2746,7 +3116,7 @@ function ConfirmationCard({
               >
                 <span>{editedArgs.isRecurring ? '🔁 Sí, Mensual' : 'Cobro Único'}</span>
                 {editedArgs.isRecurring ? (
-                  <ToggleRight className="w-5 h-5 text-indigo-650" />
+                  <ToggleRight className="w-5 h-5 text-indigo-600" />
                 ) : (
                   <ToggleLeft className="w-5 h-5 text-slate-500" />
                 )}
@@ -2766,6 +3136,54 @@ function ConfirmationCard({
               </div>
             )}
           </div>
+
+          {/* Optional custom date and external ID fields */}
+          {(editedArgs.createdAt || editedArgs.externalId) && (
+            <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100/60 animate-in fade-in duration-200">
+              {editedArgs.createdAt && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Fecha de Operación</label>
+                  <input
+                    type="date"
+                    value={editedArgs.createdAt.slice(0, 10)}
+                    onChange={(e) => handleFieldChange('createdAt', e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none"
+                  />
+                </div>
+              )}
+              {editedArgs.externalId && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">ID Transacción</label>
+                  <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-semibold text-slate-500 truncate" title={editedArgs.externalId}>
+                    {editedArgs.externalId}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {duplicateStatus && (
+            <div className={`p-3 rounded-xl border text-[11px] leading-relaxed font-semibold flex items-start gap-2 animate-in slide-in-from-bottom-2 duration-200 ${
+              duplicateStatus.type === 'exact' 
+                ? 'bg-rose-50 border-rose-200 text-rose-800' 
+                : 'bg-orange-50 border-orange-200 text-orange-855'
+            }`}>
+              <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${
+                duplicateStatus.type === 'exact' ? 'text-rose-500' : 'text-orange-500'
+              }`} />
+              <div>
+                <p className={`font-extrabold ${duplicateStatus.type === 'exact' ? 'text-rose-900' : 'text-orange-900'}`}>
+                  {duplicateStatus.type === 'exact' ? 'Duplicado Exacto Detectado' : 'Posible Duplicado Detectado'}
+                </p>
+                <p className="mt-0.5 text-[10px]">
+                  {duplicateStatus.type === 'exact' 
+                    ? `Esta transacción ya se encuentra registrada en la base de datos (ID: ${editedArgs.externalId}).`
+                    : `Existe un registro similar en la misma fecha y monto: ${duplicateStatus.details}`
+                  }
+                </p>
+              </div>
+            </div>
+          )}
 
           {paymentMethodMissing && !editedArgs.paymentMethod && (
             <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1">
@@ -2854,6 +3272,54 @@ function ConfirmationCard({
               </select>
             </div>
           </div>
+
+          {/* Optional custom date and external ID fields */}
+          {(editedArgs.createdAt || editedArgs.externalId) && (
+            <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100/60 animate-in fade-in duration-200">
+              {editedArgs.createdAt && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Fecha de Operación</label>
+                  <input
+                    type="date"
+                    value={editedArgs.createdAt.slice(0, 10)}
+                    onChange={(e) => handleFieldChange('createdAt', e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none"
+                  />
+                </div>
+              )}
+              {editedArgs.externalId && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">ID Transacción</label>
+                  <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-semibold text-slate-500 truncate" title={editedArgs.externalId}>
+                    {editedArgs.externalId}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {duplicateStatus && (
+            <div className={`p-3 rounded-xl border text-[11px] leading-relaxed font-semibold flex items-start gap-2 animate-in slide-in-from-bottom-2 duration-200 ${
+              duplicateStatus.type === 'exact' 
+                ? 'bg-rose-50 border-rose-200 text-rose-800' 
+                : 'bg-orange-50 border-orange-200 text-orange-855'
+            }`}>
+              <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${
+                duplicateStatus.type === 'exact' ? 'text-rose-500' : 'text-orange-500'
+              }`} />
+              <div>
+                <p className={`font-extrabold ${duplicateStatus.type === 'exact' ? 'text-rose-900' : 'text-orange-900'}`}>
+                  {duplicateStatus.type === 'exact' ? 'Duplicado Exacto Detectado' : 'Posible Duplicado Detectado'}
+                </p>
+                <p className="mt-0.5 text-[10px]">
+                  {duplicateStatus.type === 'exact' 
+                    ? `Esta transacción ya se encuentra registrada en la base de datos (ID: ${editedArgs.externalId}).`
+                    : `Existe un registro similar en la misma fecha y monto: ${duplicateStatus.details}`
+                  }
+                </p>
+              </div>
+            </div>
+          )}
 
           {paymentMethodMissing && !editedArgs.paymentMethod && (
             <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1">

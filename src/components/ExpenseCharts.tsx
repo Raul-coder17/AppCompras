@@ -278,7 +278,7 @@ export default function ExpenseCharts({
           <div className="space-y-4">
             {/* Total Budget progress bar */}
             <div>
-              <div className="flex justify-between text-xs font-bold text-slate-650 mb-1.5">
+              <div className="flex justify-between text-xs font-bold text-slate-600 mb-1.5">
                 <span>Porcentaje de Uso del Presupuesto</span>
                 <span>{totals.totalBudget > 0 ? ((totals.totalSpent / totals.totalBudget) * 100).toFixed(0) : 0}%</span>
               </div>

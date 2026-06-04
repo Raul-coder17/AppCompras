@@ -60,11 +60,12 @@ export default function AIAssistantSettings({
 
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${keyInput.trim()}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`,
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-goog-api-key': keyInput.trim()
           },
           body: JSON.stringify({
             contents: [{ parts: [{ text: 'Di únicamente: ¡Conexión exitosa!' }] }]

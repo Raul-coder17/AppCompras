@@ -177,7 +177,7 @@ export default function MonthlyHistory({ history, onDeleteMonth }: MonthlyHistor
 
                     {/* Gastos en Servicios */}
                     <div className="p-4.5 bg-white border border-slate-100 rounded-2xl flex flex-col justify-between">
-                      <div className="text-[9px] font-bold text-indigo-650 uppercase tracking-wider flex items-center gap-1.5">
+                      <div className="text-[9px] font-bold text-indigo-600 uppercase tracking-wider flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5 text-indigo-500" /> Pago de Servicios
                       </div>
                       <div className="mt-2.5">
