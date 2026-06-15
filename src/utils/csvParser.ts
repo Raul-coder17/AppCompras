@@ -51,8 +51,12 @@ function parseCSVLine(line: string, delimiter: string): string[] {
     const char = line[i];
 
     if (char === '"') {
-      // Toggle inQuotes
-      inQuotes = !inQuotes;
+      if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+        currentField += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
     } else if (char === delimiter && !inQuotes) {
       result.push(currentField.trim());
       currentField = '';
@@ -104,18 +108,11 @@ export function parseMPNumber(valStr: string): number {
  */
 function parseMPDate(dateStr: string): string {
   if (!dateStr) return new Date().toISOString();
-  
+
   const cleanDate = dateStr.trim();
-  
-  // Si tiene formato YYYY-MM-DD o similar al inicio, usar Date.parse nativo
-  if (/^\d{4}[-/]\d{2}[-/]\d{2}/.test(cleanDate)) {
-    const parsed = Date.parse(cleanDate);
-    if (!isNaN(parsed)) {
-      return new Date(parsed).toISOString();
-    }
-  }
-  
-  // Intentar parsear explícitamente DD/MM/YYYY o DD-MM-YYYY primero (formato estándar de Mercado Pago en LATAM)
+
+  // Parser explícito primero — produce hora local sin sufijo 'Z', evitando desfase UTC.
+  // Maneja DD/MM/YYYY y YYYY-MM-DD con o sin componente de hora.
   const parts = cleanDate.split(/[\sT]+/);
   const dateParts = parts[0].split(/[-/]/);
   if (dateParts.length === 3) {
@@ -142,9 +139,12 @@ function parseMPDate(dateStr: string): string {
       }
     }
 
-    const manualDate = new Date(year, month, day, hours, minutes, seconds);
-    if (!isNaN(manualDate.getTime())) {
-      return manualDate.toISOString();
+    const checkDate = new Date(year, month, day, hours, minutes, seconds);
+    if (!isNaN(checkDate.getTime())) {
+      // Build a naive ISO string (no 'Z' suffix) so toDateStr().slice(0,10) returns
+      // the original calendar date from the CSV, unaffected by the local UTC offset.
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${year}-${pad(month + 1)}-${pad(day)}T${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
     }
   }
 
@@ -284,9 +284,8 @@ export function parseMercadoPagoCSV(csvText: string): ParsedMPTransaction[] {
     if (amount > 0) {
       // Es un ingreso
       type = 'income';
-      // Buscar si el concepto indica algún tipo de ingreso obvio (ej. Nómina o transferencia conocida)
       if (cleanDesc.includes('nomina') || cleanDesc.includes('sueldo') || cleanDesc.includes('honorarios') || cleanDesc.includes('quincena')) {
-        type = 'income';
+        inferredCategory = 'nomina';
       }
     } else {
       // Es un egreso/gasto
@@ -317,11 +316,11 @@ export function parseMercadoPagoCSV(csvText: string): ParsedMPTransaction[] {
         // para que sea clasificado por el bot o el usuario, excepto si es muy genérico,
         // en cuyo caso queda en 'expense' con categoría 'otros'.
         if (!categoryFound) {
-          // Si tiene un patrón común de pago comercial pero desconocido
+          // Patrones de pago comercial conocidos → clasificar como gasto genérico en lugar de ambiguo
           if (cleanDesc.includes('mercadopago') || cleanDesc.includes('mp*') || cleanDesc.includes('pago a') || cleanDesc.includes('compra en')) {
-            type = 'ambiguous';
+            type = 'expense';
           } else {
-            type = 'ambiguous'; // Dejar como ambiguo para confirmación
+            type = 'ambiguous';
           }
         }
       }

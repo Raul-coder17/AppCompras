@@ -106,6 +106,12 @@ const DEFAULT_ITEMS: ShoppingItem[] = [
   }
 ];
 
+const toLocalISOString = (): string => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+};
+
 export default function App() {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [archivedItems, setArchivedItems] = useState<ArchivedItem[]>([]);
@@ -129,6 +135,13 @@ export default function App() {
   const [isCloseWizardOpen, setIsCloseWizardOpen] = useState(false);
   const [showMonthChangeBanner, setShowMonthChangeBanner] = useState(false);
   const [apartados, setApartados] = useState<Apartado[]>([]);
+
+  // Snapshots of the confirmed initial budget for each pool, persisted to localStorage.
+  // Set when the wizard closes a month (to the new month's budget) or when the user
+  // corrects the budget via the Edit button. Used so monthly history records the real
+  // starting value instead of a retrospective cashBudget − totalIncomes formula.
+  const [initialCashBudgetSnapshot, setInitialCashBudgetSnapshot] = useState<number>(0);
+  const [initialCardBudgetSnapshot, setInitialCardBudgetSnapshot] = useState<number>(0);
 
   // Navigation and sidebar states
   const [activeSection, setActiveSection] = useState<'capital' | 'shopping-list' | 'incomes' | 'services' | 'reports'>('capital');
@@ -272,6 +285,11 @@ export default function App() {
         setApartados([]);
       }
 
+      const storedInitialCash = localStorage.getItem('cobuy_initial_cash_snapshot');
+      const storedInitialCard = localStorage.getItem('cobuy_initial_card_snapshot');
+      if (storedInitialCash) setInitialCashBudgetSnapshot(parseFloat(storedInitialCash) || 0);
+      if (storedInitialCard) setInitialCardBudgetSnapshot(parseFloat(storedInitialCard) || 0);
+
       if (storedCurrentMonth) {
         setCurrentMonth(storedCurrentMonth);
       } else {
@@ -293,6 +311,8 @@ export default function App() {
       setIncomes([]);
       setMonthlyHistory([]);
       setApartados([]);
+      setInitialCashBudgetSnapshot(0);
+      setInitialCardBudgetSnapshot(0);
     } finally {
       setIsInitialized(true);
     }
@@ -400,6 +420,12 @@ export default function App() {
     }
   }, [apartados, isInitialized]);
 
+  useEffect(() => {
+    if (!isInitialized) return;
+    localStorage.setItem('cobuy_initial_cash_snapshot', initialCashBudgetSnapshot.toString());
+    localStorage.setItem('cobuy_initial_card_snapshot', initialCardBudgetSnapshot.toString());
+  }, [initialCashBudgetSnapshot, initialCardBudgetSnapshot, isInitialized]);
+
 
   // Month change detector
   useEffect(() => {
@@ -427,7 +453,7 @@ export default function App() {
     const newIncome: Income = {
       ...incomeData,
       id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: incomeData.createdAt || new Date().toISOString()
+      createdAt: incomeData.createdAt || toLocalISOString()
     };
     setIncomes((prev) => [newIncome, ...prev]);
     if (incomeData.paymentMethod === 'efectivo') {
@@ -438,16 +464,14 @@ export default function App() {
   };
 
   const handleDeleteIncome = (id: string) => {
-    setIncomes((prev) => {
-      const target = prev.find(i => i.id === id);
-      if (!target) return prev;
-      if (target.paymentMethod === 'efectivo') {
-        setCashBudget((prevCash) => Math.max(0, prevCash - target.amount));
-      } else {
-        setCardBudget((prevCard) => Math.max(0, prevCard - target.amount));
-      }
-      return prev.filter(i => i.id !== id);
-    });
+    const target = incomes.find(i => i.id === id);
+    if (!target) return;
+    setIncomes(prev => prev.filter(i => i.id !== id));
+    if (target.paymentMethod === 'efectivo') {
+      setCashBudget(prev => Math.max(0, prev - target.amount));
+    } else {
+      setCardBudget(prev => Math.max(0, prev - target.amount));
+    }
   };
 
   // Apartados handlers
@@ -455,26 +479,22 @@ export default function App() {
     const trimmedName = name.trim();
     if (!trimmedName || amount <= 0) return;
 
+    const pool = paymentMethod === 'efectivo' ? cashBudget : cardBudget;
+    if (amount > pool) return;
+
     const newApartado: Apartado = {
       id: `apartado-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: trimmedName,
       amount,
       paymentMethod,
-      createdAt: new Date().toISOString()
+      createdAt: toLocalISOString()
     };
 
+    setApartados((prev) => [...prev, newApartado]);
     if (paymentMethod === 'efectivo') {
-      setCashBudget((prev) => {
-        if (amount > prev) return prev;
-        setApartados((prevAp) => [...prevAp, newApartado]);
-        return prev - amount;
-      });
+      setCashBudget((prev) => prev - amount);
     } else {
-      setCardBudget((prev) => {
-        if (amount > prev) return prev;
-        setApartados((prevAp) => [...prevAp, newApartado]);
-        return prev - amount;
-      });
+      setCardBudget((prev) => prev - amount);
     }
   };
 
@@ -483,56 +503,46 @@ export default function App() {
     const target = apartados.find(ap => ap.id === id);
     if (!target) return;
 
+    const pool = target.paymentMethod === 'efectivo' ? cashBudget : cardBudget;
+    if (amount > pool) return;
+
+    setApartados((prev) => prev.map(ap =>
+      ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
+    ));
     if (target.paymentMethod === 'efectivo') {
-      setCashBudget((prev) => {
-        if (amount > prev) return prev;
-        setApartados((prevAp) => prevAp.map(ap =>
-          ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
-        ));
-        return prev - amount;
-      });
+      setCashBudget((prev) => prev - amount);
     } else {
-      setCardBudget((prev) => {
-        if (amount > prev) return prev;
-        setApartados((prevAp) => prevAp.map(ap =>
-          ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
-        ));
-        return prev - amount;
-      });
+      setCardBudget((prev) => prev - amount);
     }
   };
 
   const handleWithdrawFromApartado = (id: string, amount: number) => {
     if (amount <= 0) return;
-    setApartados((prevAp) => {
-      const currentTarget = prevAp.find(ap => ap.id === id);
-      if (!currentTarget) return prevAp;
-      const actualWithdraw = Math.min(currentTarget.amount, amount);
-      if (actualWithdraw <= 0) return prevAp;
+    const target = apartados.find(ap => ap.id === id);
+    if (!target) return;
+    const actualWithdraw = Math.min(target.amount, amount);
+    if (actualWithdraw <= 0) return;
 
-      if (currentTarget.paymentMethod === 'efectivo') {
-        setCashBudget((prev) => prev + actualWithdraw);
-      } else {
-        setCardBudget((prev) => prev + actualWithdraw);
-      }
-
-      return prevAp.map(ap =>
-        ap.id === id ? { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) } : ap
-      );
-    });
+    setApartados((prev) => prev.map(ap =>
+      ap.id === id ? { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) } : ap
+    ));
+    if (target.paymentMethod === 'efectivo') {
+      setCashBudget((prev) => prev + actualWithdraw);
+    } else {
+      setCardBudget((prev) => prev + actualWithdraw);
+    }
   };
 
   const handleDeleteApartado = (id: string) => {
-    setApartados((prevAp) => {
-      const target = prevAp.find((ap) => ap.id === id);
-      if (!target) return prevAp;
-      if (target.paymentMethod === 'efectivo') {
-        setCashBudget((prev) => prev + target.amount);
-      } else {
-        setCardBudget((prev) => prev + target.amount);
-      }
-      return prevAp.filter((ap) => ap.id !== id);
-    });
+    const target = apartados.find((ap) => ap.id === id);
+    if (!target) return;
+
+    setApartados((prev) => prev.filter((ap) => ap.id !== id));
+    if (target.paymentMethod === 'efectivo') {
+      setCashBudget((prev) => prev + target.amount);
+    } else {
+      setCardBudget((prev) => prev + target.amount);
+    }
   };
 
   // Month closing wizard handler
@@ -565,19 +575,26 @@ export default function App() {
       .reduce((acc, curr) => acc + curr.amount, 0);
 
     const totalIncomesCard = incomes
-      .filter(i => i.paymentMethod === 'tarjeta')
+      .filter(i => i.paymentMethod !== 'efectivo')
       .reduce((acc, curr) => acc + curr.amount, 0);
 
     const remainingCashVal = Math.max(0, cashBudget - spentCash - spentServicesCash);
     const remainingCardVal = Math.max(0, cardBudget - spentCard - spentServicesCard);
+
+    const totalApartadosCash = apartados
+      .filter(a => a.paymentMethod === 'efectivo')
+      .reduce((acc, a) => acc + a.amount, 0);
+    const totalApartadosCard = apartados
+      .filter(a => a.paymentMethod === 'tarjeta')
+      .reduce((acc, a) => acc + a.amount, 0);
 
     const [year, month] = currentMonth.split('-');
 
     const summary: MonthlySummary = {
       monthId: currentMonth,
       monthName: currentMonthName,
-      initialCashBudget: Math.max(0, cashBudget - totalIncomesCash),
-      initialCardBudget: Math.max(0, cardBudget - totalIncomesCard),
+      initialCashBudget: initialCashBudgetSnapshot > 0 ? initialCashBudgetSnapshot : Math.max(0, cashBudget + totalApartadosCash - totalIncomesCash),
+      initialCardBudget: initialCardBudgetSnapshot > 0 ? initialCardBudgetSnapshot : Math.max(0, cardBudget + totalApartadosCard - totalIncomesCard),
       totalIncomesCash,
       totalIncomesCard,
       totalSpentCash: spentCash,
@@ -607,14 +624,13 @@ export default function App() {
     setCurrentMonth(nextMonthStr);
     setCashBudget(newCashBudget);
     setCardBudget(newCardBudget);
+    setInitialCashBudgetSnapshot(newCashBudget);
+    setInitialCardBudgetSnapshot(newCardBudget);
     setIncomes([]);
 
     // Clear items: carry over pending if requested
     if (carryOverPendingItems) {
-      const carriedItems = pendingItems.map(item => ({
-        ...item,
-        createdAt: new Date().toISOString()
-      }));
+      const carriedItems = pendingItems.map(item => ({ ...item }));
       setItems(carriedItems);
     } else {
       setItems([]);
@@ -894,7 +910,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             id: `income-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             name: item.description,
             amount: Math.abs(item.amount),
-            paymentMethod: 'tarjeta',
+            paymentMethod: 'transferencia',
             createdAt: item.date,
             externalId: item.externalId
           };
@@ -936,7 +952,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             id: `income-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
             name: item.description,
             amount: Math.abs(item.amount),
-            paymentMethod: 'tarjeta',
+            paymentMethod: 'transferencia',
             createdAt: item.date,
             externalId: item.externalId
           });
@@ -995,7 +1011,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
           const spentServices = newHistoryServices.reduce((acc, curr) => acc + curr.amount, 0);
 
           const totalIncomesCard = newHistoryIncomes
-            .filter(i => i.paymentMethod === 'tarjeta')
+            .filter(i => i.paymentMethod !== 'efectivo')
             .reduce((acc, curr) => acc + curr.amount, 0);
 
           const remainingCardVal = Math.max(0, record.summary.initialCardBudget + totalIncomesCard - spentCard - spentServicesCard);
@@ -1034,7 +1050,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
           const spentServices = updates.servicePayments.reduce((acc, curr) => acc + curr.amount, 0);
 
           const totalIncomesCard = updates.incomes
-            .filter(i => i.paymentMethod === 'tarjeta')
+            .filter(i => i.paymentMethod !== 'efectivo')
             .reduce((acc, curr) => acc + curr.amount, 0);
 
           const remainingCardVal = Math.max(0, totalIncomesCard - spentCard - spentServicesCard);
@@ -1051,7 +1067,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             totalSpentServices: spentServices,
             remainingCash: 0,
             remainingCard: remainingCardVal,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            isPartialImport: true
           };
 
           updatedHistory.push({
@@ -1076,7 +1093,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     const newItem: ShoppingItem = {
       ...itemData,
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: itemData.createdAt || new Date().toISOString()
+      createdAt: itemData.createdAt || toLocalISOString()
     };
     setItems((prev) => [newItem, ...prev]);
     if (itemData.place) {
@@ -1096,28 +1113,24 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   };
 
   const handleDeleteItem = (id: string) => {
-    setItems((prev) => {
-      const target = prev.find((item) => item.id === id);
-      if (!target) return prev;
-      setArchivedItems((archived) => {
-        if (archived.some((item) => item.id === id)) return archived;
-        return [{ ...target, deletedAt: new Date().toISOString() }, ...archived];
-      });
-      return prev.filter(item => item.id !== id);
+    const target = items.find((item) => item.id === id);
+    if (!target) return;
+    setArchivedItems((archived) => {
+      if (archived.some((item) => item.id === id)) return archived;
+      return [{ ...target, deletedAt: new Date().toISOString() }, ...archived];
     });
+    setItems((prev) => prev.filter(item => item.id !== id));
   };
 
   const handleRestoreItem = (id: string) => {
-    setArchivedItems((prev) => {
-      const target = prev.find((item) => item.id === id);
-      if (!target) return prev;
-      const { deletedAt, ...rest } = target;
-      setItems((current) => {
-        if (current.some((item) => item.id === id)) return current;
-        return [rest, ...current];
-      });
-      return prev.filter(item => item.id !== id);
+    const target = archivedItems.find((item) => item.id === id);
+    if (!target) return;
+    const { deletedAt, ...rest } = target;
+    setItems((current) => {
+      if (current.some((item) => item.id === id)) return current;
+      return [rest, ...current];
     });
+    setArchivedItems((prev) => prev.filter(item => item.id !== id));
   };
 
   const handlePurgeArchivedItem = (id: string) => {
@@ -1135,9 +1148,11 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   const handleUpdateBudget = (type: 'cash' | 'card', newBudget: number) => {
     if (type === 'cash') {
       setCashBudget(newBudget);
+      setInitialCashBudgetSnapshot(newBudget);
       return;
     }
     setCardBudget(newBudget);
+    setInitialCardBudgetSnapshot(newBudget);
   };
 
   const handleAddCategory = (name: string) => {
@@ -1171,7 +1186,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     const newPayment: ServicePayment = {
       ...paymentData,
       id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: paymentData.createdAt || new Date().toISOString()
+      createdAt: paymentData.createdAt || toLocalISOString()
     };
     setServicePayments((prev) => [newPayment, ...prev]);
     if (paymentData.service) {
@@ -1212,6 +1227,12 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     setApartados([]);
     setCashBudget(0);
     setCardBudget(0);
+    setMonthlyHistory([]);
+    setInitialCashBudgetSnapshot(0);
+    setInitialCardBudgetSnapshot(0);
+    const now = new Date();
+    const resetMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    setCurrentMonth(resetMonth);
     setSelectedStoreFilter(null);
     setPlaces([]);
     setServiceOptions(PREDEFINED_SERVICES);
@@ -1249,7 +1270,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       filename = `lista_compras_articulos_${new Date().toISOString().slice(0, 10)}.csv`;
     } else {
       keys = ['Mes', 'Tipo', 'Fecha', 'Descripcion', 'Monto', 'Cantidad/Info', 'Total', 'Categoria/Detalle', 'Metodo de Pago', 'Estado', 'ID Externo'];
-      
+
       const appendMonthRows = (monthName: string, itemsList: typeof items, servicesList: typeof servicePayments, incomesList: typeof incomes) => {
         // Incomes
         incomesList.forEach(inc => {
@@ -1433,8 +1454,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   setMobileSidebarOpen(false);
                 }}
                 className={`w-full flex items-center gap-3.5 rounded-2xl transition-all duration-150 group cursor-pointer ${sidebarCollapsed ? 'justify-center p-2.5' : 'p-3.5'} ${isActive
-                    ? 'bg-slate-900 text-white shadow-sm shadow-slate-950/15'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  ? 'bg-slate-900 text-white shadow-sm shadow-slate-950/15'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 title={item.label}
               >
@@ -1564,8 +1585,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   <button
                     onClick={() => setCapitalTab('dashboard')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${capitalTab === 'dashboard'
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <Wallet className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1574,8 +1595,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   <button
                     onClick={() => setCapitalTab('history')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${capitalTab === 'history'
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1591,7 +1612,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                     onUpdateBudget={handleUpdateBudget}
                     onOpenCloseWizard={() => setIsCloseWizardOpen(true)}
                     totalIncomesCash={incomes.filter(i => i.paymentMethod === 'efectivo').reduce((acc, curr) => acc + curr.amount, 0)}
-                    totalIncomesCard={incomes.filter(i => i.paymentMethod === 'tarjeta').reduce((acc, curr) => acc + curr.amount, 0)}
+                    totalIncomesCard={incomes.filter(i => i.paymentMethod !== 'efectivo').reduce((acc, curr) => acc + curr.amount, 0)}
                     apartados={apartados}
                     onAddApartado={handleAddApartado}
                     onDepositToApartado={handleDepositToApartado}
@@ -1697,8 +1718,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   <button
                     onClick={() => setShoppingTab('list')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${shoppingTab === 'list'
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <ListTodo className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1707,8 +1728,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   <button
                     onClick={() => setShoppingTab('stores')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${shoppingTab === 'stores'
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <Store className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1788,8 +1809,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   <button
                     onClick={() => setReportTab('charts')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${reportTab === 'charts'
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <BarChart3 className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1798,8 +1819,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
                   <button
                     onClick={() => setReportTab('calendar')}
                     className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-155 cursor-pointer active:scale-95 ${reportTab === 'calendar'
-                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
                       }`}
                   >
                     <Calendar className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -1943,7 +1964,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
               <p className="text-xs font-semibold text-slate-600 leading-relaxed">
                 Selecciona la información que deseas exportar en formato <strong>CSV (delimitado por comas)</strong>:
               </p>
-              
+
               <div className="space-y-2">
                 <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 cursor-pointer transition select-none">
                   <input
@@ -2020,7 +2041,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
         cashBudget={cashBudget}
         cardBudget={cardBudget}
         items={items}
-        servicePayments={servicePayments}
+        servicePayments={servicePayments.filter(s => s.createdAt.startsWith(currentMonth))}
         incomes={incomes}
         onConfirmClose={handleConfirmCloseMonth}
       />
@@ -2029,7 +2050,7 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
       {isScreenshotModalOpen && screenshotPreview && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl w-full max-w-lg flex flex-col shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200 overflow-hidden">
-            
+
             {/* Header */}
             <div className="p-6 border-b border-slate-150 flex items-center justify-between bg-slate-50 shrink-0">
               <div>

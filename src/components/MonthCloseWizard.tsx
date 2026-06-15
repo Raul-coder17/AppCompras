@@ -63,7 +63,7 @@ export default function MonthCloseWizard({
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   const totalIncomesCard = incomes
-    .filter(i => i.paymentMethod === 'tarjeta')
+    .filter(i => i.paymentMethod !== 'efectivo')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   // Final remaining balances (starting budget - spent. Incomes are already integrated in cashBudget/cardBudget)

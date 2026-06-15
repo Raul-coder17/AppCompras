@@ -75,9 +75,17 @@ export default function MonthlyHistory({ history, onDeleteMonth }: MonthlyHistor
                     <span className="text-sm leading-none mt-0.5">{summary.monthId.split('-')[1]}</span>
                   </div>
                   <div>
-                    <h4 className="font-extrabold text-sm text-slate-800 tracking-tight">{summary.monthName}</h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-extrabold text-sm text-slate-800 tracking-tight">{summary.monthName}</h4>
+                      {summary.isPartialImport && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-[8px] font-bold text-amber-600 uppercase tracking-wide">
+                          MP Import
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[10px] text-slate-400 font-bold">
-                      Cerrado el {new Date(summary.createdAt).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}
+                      {summary.isPartialImport ? 'Importado el' : 'Cerrado el'}{' '}
+                      {new Date(summary.createdAt).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}
                     </p>
                   </div>
                 </div>
@@ -139,11 +147,17 @@ export default function MonthlyHistory({ history, onDeleteMonth }: MonthlyHistor
                         <Activity className="w-3.5 h-3.5 text-slate-500" /> Presupuesto Inicial
                       </div>
                       <div className="mt-2.5">
-                        <span className="text-base font-black text-slate-800">${startingBudget.toFixed(2)}</span>
-                        <div className="flex items-center justify-between text-[9px] text-slate-400 font-semibold mt-1">
-                          <span>Efe: ${summary.initialCashBudget}</span>
-                          <span>Tar: ${summary.initialCardBudget}</span>
-                        </div>
+                        {summary.isPartialImport ? (
+                          <span className="text-xs font-bold text-amber-500">Solo datos de MP</span>
+                        ) : (
+                          <>
+                            <span className="text-base font-black text-slate-800">${startingBudget.toFixed(2)}</span>
+                            <div className="flex items-center justify-between text-[9px] text-slate-400 font-semibold mt-1">
+                              <span>Efe: ${summary.initialCashBudget}</span>
+                              <span>Dig: ${summary.initialCardBudget}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 

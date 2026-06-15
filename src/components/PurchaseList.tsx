@@ -486,6 +486,21 @@ export default function PurchaseList({
                             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: item.bought ? '#CBD5E1' : catInfo.color }}></span>
                             <span>{catInfo.name.split(' / ')[0]}</span>
                           </div>
+
+                          {/* Date badge */}
+                          {item.createdAt && (
+                            <div className="flex items-center gap-1 text-[11px] text-slate-400/80 font-medium bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100/60 shadow-2xs">
+                              <Calendar className="w-3 h-3 text-slate-400/80" />
+                              <span>
+                                {new Date(item.createdAt).toLocaleDateString('es-ES', { 
+                                  month: 'short', 
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
 

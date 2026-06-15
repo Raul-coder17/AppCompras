@@ -96,7 +96,7 @@ export interface Income {
   id: string;
   name: string;
   amount: number;
-  paymentMethod: 'efectivo' | 'tarjeta';
+  paymentMethod: 'efectivo' | 'tarjeta' | 'transferencia';
   createdAt: string;
   externalId?: string; // ID único de transacción (ej. Mercado Pago)
 }
@@ -114,6 +114,7 @@ export interface MonthlySummary {
   remainingCash: number;
   remainingCard: number;
   createdAt: string;
+  isPartialImport?: boolean; // true cuando fue creado por importación CSV sin presupuesto inicial conocido
 }
 
 export interface MonthlyHistoryRecord {

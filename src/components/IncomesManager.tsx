@@ -15,7 +15,7 @@ export default function IncomesManager({
 }: IncomesManagerProps) {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'tarjeta'>('tarjeta');
+  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('transferencia');
   const [error, setError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -48,7 +48,7 @@ export default function IncomesManager({
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   const totalCard = incomes
-    .filter(i => i.paymentMethod === 'tarjeta')
+    .filter(i => i.paymentMethod !== 'efectivo')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   return (
@@ -79,7 +79,7 @@ export default function IncomesManager({
         </div>
         <div className="p-3 bg-blue-50/40 rounded-2xl border border-blue-100/50 flex flex-col justify-between">
           <div className="flex items-center gap-1.5 text-blue-700 font-bold text-[10px] uppercase tracking-wider">
-            <CreditCard className="w-3.5 h-3.5" /> Tarjeta
+            <CreditCard className="w-3.5 h-3.5" /> Digital
           </div>
           <span className="text-sm font-extrabold text-blue-800 mt-1.5">
             ${totalCard.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -117,9 +117,10 @@ export default function IncomesManager({
             <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Destino de Fondos</label>
             <select
               value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value as 'efectivo' | 'tarjeta')}
+              onChange={(e) => setPaymentMethod(e.target.value as 'efectivo' | 'tarjeta' | 'transferencia')}
               className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none cursor-pointer font-bold"
             >
+              <option value="transferencia">🏦 Transferencia</option>
               <option value="tarjeta">💳 Tarjeta</option>
               <option value="efectivo">💵 Efectivo</option>
             </select>
@@ -157,9 +158,11 @@ export default function IncomesManager({
                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[11px] ${
                     inc.paymentMethod === 'efectivo'
                       ? 'bg-emerald-50 text-emerald-600 border border-emerald-100/50'
+                      : inc.paymentMethod === 'transferencia'
+                      ? 'bg-amber-50 text-amber-600 border border-amber-100/50'
                       : 'bg-blue-50 text-blue-600 border border-blue-100/50'
                   }`}>
-                    {inc.paymentMethod === 'efectivo' ? '💵' : '💳'}
+                    {inc.paymentMethod === 'efectivo' ? '💵' : inc.paymentMethod === 'transferencia' ? '🏦' : '💳'}
                   </div>
                   <div>
                     <span className="block text-xs font-bold text-slate-700">{inc.name}</span>
@@ -170,7 +173,7 @@ export default function IncomesManager({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-extrabold ${inc.paymentMethod === 'efectivo' ? 'text-emerald-700' : 'text-blue-700'}`}>
+                  <span className={`text-xs font-extrabold ${inc.paymentMethod === 'efectivo' ? 'text-emerald-700' : inc.paymentMethod === 'transferencia' ? 'text-amber-700' : 'text-blue-700'}`}>
                     +${inc.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                   </span>
                   <button

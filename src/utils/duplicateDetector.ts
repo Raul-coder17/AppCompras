@@ -23,6 +23,7 @@ export const normalizeText = (text: string): string => {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[._]/g, ' ')
     .replace(/[^a-z0-9\s]/g, '')
     .trim();
 };
@@ -164,18 +165,17 @@ export const checkDuplicateTransaction = (
     // A. Must be the same calendar day
     if (entry.dateStr !== targetDateStr) continue;
 
-    // B. Check amount difference (with 2% tolerance)
+    // B. Check amount difference (2% tolerance with $0.50 floor to handle bank commission rounding)
     const amountDiff = Math.abs(entry.amount - targetAmount);
-    const isAmountWithinTolerance = amountDiff <= targetAmount * 0.02 || amountDiff < 0.015;
+    const tolerance = Math.max(targetAmount * 0.02, 0.50);
+    const isAmountWithinTolerance = amountDiff <= tolerance;
     if (!isAmountWithinTolerance) continue;
 
     // C. Check concept/name similarity to avoid false positives
     const entryWords = entry.normalizedName.split(/\s+/).filter(w => w.length >= 3);
-    
-    // Check word overlap: at least one shared keyword of length >= 3
-    const hasCommonWord = targetWords.some(tw => 
-      entryWords.some(ew => ew.includes(tw) || tw.includes(ew))
-    );
+
+    // Exact word match only — substring matching caused false positives with generic words like "pago", "uber"
+    const hasCommonWord = targetWords.some(tw => entryWords.includes(tw));
 
     // If description is identical OR there is a significant word overlap, it's a fuzzy duplicate
     // Note: We no longer auto-exclude exact amounts on the same day if descriptions have ZERO connection,

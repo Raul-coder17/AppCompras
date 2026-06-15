@@ -4,14 +4,14 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { 
-  Wallet, 
-  TrendingUp, 
-  HandCoins, 
-  PiggyBank, 
-  Edit2, 
-  Check, 
-  X 
+import {
+  Wallet,
+  TrendingUp,
+  HandCoins,
+  PiggyBank,
+  Edit2,
+  Check,
+  X
 } from 'lucide-react';
 import { BudgetSummary, Apartado } from '../types';
 
@@ -28,8 +28,8 @@ interface BudgetCardProps {
   onDeleteApartado?: (id: string) => void;
 }
 
-export default function BudgetCard({ 
-  summary, 
+export default function BudgetCard({
+  summary,
   onUpdateBudget,
   onOpenCloseWizard,
   totalIncomesCash = 0,
@@ -85,7 +85,7 @@ export default function BudgetCard({
   const handleCreateApartado = (type: 'cash' | 'card') => {
     const amount = parseFloat(newApAmount);
     if (!newApName.trim() || isNaN(amount) || amount <= 0) return;
-    
+
     // Check limit
     const available = type === 'cash' ? cashBudget : cardBudget;
     if (amount > available) {
@@ -142,8 +142,8 @@ export default function BudgetCard({
         {list.length > 0 ? (
           <div className="mt-2.5 space-y-2">
             {list.map((ap) => (
-              <div 
-                key={ap.id} 
+              <div
+                key={ap.id}
                 className="flex flex-col bg-slate-50 border border-slate-150 rounded-xl p-2.5 hover:shadow-xs transition-all duration-205"
               >
                 <div className="flex items-center justify-between">
@@ -153,7 +153,7 @@ export default function BudgetCard({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-black text-slate-900">${ap.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
-                    
+
                     {/* Tiny inline buttons */}
                     <div className="flex items-center gap-1">
                       <button
@@ -333,7 +333,7 @@ export default function BudgetCard({
       {/* Header section with interactive Available Capital input */}
       <div className="p-6 md:p-8 bg-gradient-to-b from-slate-50/70 to-slate-100/30 border-b border-slate-150/70">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-          
+
           {/* Capital accumulation display */}
           <div className="space-y-2.5">
             <div className="flex items-center gap-2 text-slate-500">
@@ -344,7 +344,7 @@ export default function BudgetCard({
                 Capital Neto Acumulado
               </span>
             </div>
-            
+
             <div className="flex items-baseline gap-2 mt-1">
               <h2 className="text-3.5xl sm:text-4xl lg:text-4.5xl font-black tracking-tight text-slate-900 leading-none">
                 ${realTotalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -377,7 +377,7 @@ export default function BudgetCard({
 
           {/* Right Metrics Panel */}
           <div className="flex flex-col sm:flex-row lg:flex-col items-start sm:items-center lg:items-end gap-4.5 w-full lg:w-auto shrink-0 bg-white/60 backdrop-blur-xs border border-slate-200/55 p-5 rounded-3xl shadow-sm">
-            
+
             {/* Status chip */}
             <div className="flex flex-col lg:items-end gap-1">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Estado del Capital</span>
@@ -407,9 +407,8 @@ export default function BudgetCard({
             <div className="flex flex-col lg:items-end gap-1">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Compromiso Financiero</span>
               <div className="flex items-center gap-1 mt-1">
-                <span className={`text-sm sm:text-base font-black ${
-                  percentTotal >= 100 ? 'text-rose-600' : percentTotal >= 80 ? 'text-amber-600' : 'text-slate-800'
-                }`}>
+                <span className={`text-sm sm:text-base font-black ${percentTotal >= 100 ? 'text-rose-600' : percentTotal >= 80 ? 'text-amber-600' : 'text-slate-800'
+                  }`}>
                   {percentTotal}%
                 </span>
                 <span className="text-[11px] text-slate-400 font-semibold ml-1">presupuesto comprometido</span>
@@ -434,7 +433,7 @@ export default function BudgetCard({
           </div>
 
         </div>
-      
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-6">
           {/* Box 1: Efectivo */}
           <div className="bg-white/70 border border-slate-200/60 rounded-3xl p-6 shadow-xs hover:shadow-md transition-all duration-305">
@@ -461,6 +460,14 @@ export default function BudgetCard({
               </span>
               <span className="text-[10px] text-slate-400 font-bold uppercase">Restante</span>
             </div>
+            {cashPlanned > 0 && (
+              <p className="text-[10px] font-bold mt-0.5">
+                <span className="text-slate-400">Libre real: </span>
+                <span className={remainingCash - cashPlanned < 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                  ${(remainingCash - cashPlanned).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </p>
+            )}
 
             {/* Incomes & Spent Details */}
             <div className="mt-3.5 space-y-1.5 bg-slate-50/50 p-3 rounded-2xl border border-slate-150/70 text-xs">
@@ -563,6 +570,14 @@ export default function BudgetCard({
               </span>
               <span className="text-[10px] text-slate-400 font-bold uppercase">Restante</span>
             </div>
+            {cardPlanned > 0 && (
+              <p className="text-[10px] font-bold mt-0.5">
+                <span className="text-slate-400">Libre real: </span>
+                <span className={remainingCard - cardPlanned < 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                  ${(remainingCard - cardPlanned).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </p>
+            )}
 
             {/* Incomes & Spent Details */}
             <div className="mt-3.5 space-y-1.5 bg-slate-50/50 p-3 rounded-2xl border border-slate-150/70 text-xs">
@@ -643,35 +658,31 @@ export default function BudgetCard({
 
         {/* Dynamic Multi-segment progress bar */}
         <div className="mt-7 w-full bg-slate-200 h-3 rounded-full overflow-hidden flex shadow-inner" id="budget-progress-bar">
-          <div 
-            className={`h-full transition-all duration-500 ease-out ${
-              percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-            }`} 
+          <div
+            className={`h-full transition-all duration-500 ease-out ${percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+              }`}
             style={{ width: `${percentSpent}%` }}
             title={`Comprado: ${percentSpent}%`}
           />
-          <div 
-            className={`h-full transition-all duration-500 ease-out ${
-              percentTotal >= 100 ? 'bg-rose-450' : 'bg-amber-400'
-            }`} 
+          <div
+            className={`h-full transition-all duration-500 ease-out ${percentTotal >= 100 ? 'bg-rose-450' : 'bg-amber-400'
+              }`}
             style={{ width: `${percentPlanned}%` }}
             title={`Planificado: ${percentPlanned}%`}
           />
         </div>
-        
+
         {/* Progress legend */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mt-3.5 text-xs text-slate-600 px-0.5 font-semibold">
           <div className="flex flex-wrap items-center gap-3.5">
             <span className="flex items-center gap-1.5">
-              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${
-                percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-              }`}></span>
+              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}></span>
               Comprado ({percentSpent}%)
             </span>
             <span className="flex items-center gap-1.5">
-              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${
-                percentTotal >= 100 ? 'bg-rose-400' : 'bg-amber-400'
-              }`}></span>
+              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${percentTotal >= 100 ? 'bg-rose-400' : 'bg-amber-400'
+                }`}></span>
               Planificado ({percentPlanned}%)
             </span>
           </div>
@@ -681,7 +692,7 @@ export default function BudgetCard({
 
       {/* Grid of calculations */}
       <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-150 bg-white" id="budget-calculations-grid">
-        
+
         {/* Col 1: Gastado */}
         <div className="p-6 flex items-start gap-4 hover:bg-slate-50/50 transition-colors" id="stat-spent">
           <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shadow-xs shrink-0">
@@ -721,8 +732,17 @@ export default function BudgetCard({
               ${remaining.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h3>
             <p className="text-xs font-semibold mt-1">
-              {remaining < 0 ? <span className="text-rose-700">¡Estás sobregirado!</span> : <span className="text-slate-500">Disponible para gastar</span>}
+              {remaining < 0 ? <span className="text-rose-700">¡Estás sobregirado!</span> : <span className="text-slate-500">No gastado aún</span>}
             </p>
+            {planned > 0 && (
+              <p className="text-[10px] font-bold mt-0.5">
+                <span className="text-slate-400">Libre real: </span>
+                <span className={remaining - planned < 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                  ${(remaining - planned).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="text-slate-400"> (sin planificado)</span>
+              </p>
+            )}
           </div>
         </div>
 

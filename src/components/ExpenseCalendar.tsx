@@ -4,13 +4,13 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Calendar as CalendarIcon, 
-  X, 
-  Receipt, 
-  Coins, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon,
+  X,
+  Receipt,
+  Coins,
   CreditCard,
   ShoppingBag,
   ArrowRight,
@@ -38,7 +38,7 @@ interface DailyExpenseDetail {
 export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalendarProps) {
   // Current visible month and year state
   const [currentDate, setCurrentDate] = useState(() => new Date());
-  
+
   // Selected day for detailed popup modal
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
 
@@ -110,12 +110,12 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
 
       const y = expDate.getFullYear();
       const m = expDate.getMonth();
-      
+
       // Filter only visible month & year
       if (y === currentYear && m === currentMonth) {
         const d = expDate.getDate();
         const dateKey = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        
+
         if (!groups[dateKey]) {
           groups[dateKey] = [];
         }
@@ -125,7 +125,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
 
     // 2. Identify recurrent services and inject planned ones if not already paid this month
     const recurrentServices = servicePayments.filter(sp => sp.isRecurring);
-    
+
     // Group recurrent services by name to get the latest settings
     const uniqueRecurrents: Record<string, ServicePayment> = {};
     recurrentServices.forEach(sp => {
@@ -146,9 +146,9 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
       // Check if there is already a paid service recorded for this service name in the visible month
       const alreadyPaid = servicePayments.some(sp => {
         const payDate = new Date(sp.createdAt);
-        return sp.service === service.service && 
-               payDate.getFullYear() === currentYear && 
-               payDate.getMonth() === currentMonth;
+        return sp.service === service.service &&
+          payDate.getFullYear() === currentYear &&
+          payDate.getMonth() === currentMonth;
       });
 
       if (!alreadyPaid) {
@@ -202,12 +202,12 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
   // Generate calendar grid array
   const calendarCells = useMemo(() => {
     const cells: { dateKey: string; dayNumber: number; isCurrentMonth: boolean; totalSpent: number }[] = [];
-    
+
     // First day of current month
     const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
     // Sunday (0) to Saturday (6).
     const startingDayOfWeek = firstDayOfMonth.getDay();
-    
+
     // Number of days in current month
     const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     // Number of days in previous month
@@ -219,7 +219,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
       const prevMonthIdx = currentMonth === 0 ? 11 : currentMonth - 1;
       const prevYearVal = currentMonth === 0 ? currentYear - 1 : currentYear;
       const dateKey = `${prevYearVal}-${String(prevMonthIdx + 1).padStart(2, '0')}-${String(prevDay).padStart(2, '0')}`;
-      
+
       cells.push({
         dateKey,
         dayNumber: prevDay,
@@ -248,7 +248,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
       const nextMonthIdx = currentMonth === 11 ? 0 : currentMonth + 1;
       const nextYearVal = currentMonth === 11 ? currentYear + 1 : currentYear;
       const dateKey = `${nextYearVal}-${String(nextMonthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      
+
       cells.push({
         dateKey,
         dayNumber: day,
@@ -275,10 +275,10 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
 
   return (
     <div className="space-y-6" id="expense-calendar-root">
-      
+
       {/* Monthly Summary & Controls Block */}
       <div className="glass-card rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
-        
+
         {/* Navigation Selector */}
         <div className="flex items-center gap-4">
           <button
@@ -288,7 +288,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
           >
             <ChevronLeft className="w-5 h-5 text-slate-800" />
           </button>
-          
+
           <div className="flex items-center gap-2.5 min-w-[160px] justify-center">
             <CalendarIcon className="w-5 h-5 text-slate-800" />
             <span className="text-lg font-black text-slate-900 tracking-tight">
@@ -313,7 +313,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
               ${monthlyTotals.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
             </p>
           </div>
-          
+
           <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 min-w-[140px] shadow-xs">
             <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1.5">
               <Coins className="w-3.5 h-3.5 text-slate-500" /> Efectivo
@@ -336,7 +336,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
 
       {/* Calendar Grid Wrapper */}
       <div className="glass-card rounded-3xl p-4 md:p-6 overflow-hidden">
-        
+
         {/* Days of Week Headers */}
         <div className="grid grid-cols-7 gap-2 mb-3">
           {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((day, idx) => {
@@ -364,8 +364,8 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                 onClick={() => cell.isCurrentMonth && setSelectedDayKey(cell.dateKey)}
                 className={`
                   relative min-h-[60px] sm:min-h-[84px] p-1.5 sm:p-2 rounded-xl sm:rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 group
-                  ${cell.isCurrentMonth 
-                    ? 'bg-white border-slate-200 hover:border-slate-400 cursor-pointer' 
+                  ${cell.isCurrentMonth
+                    ? 'bg-white border-slate-200 hover:border-slate-400 cursor-pointer'
                     : 'bg-slate-50/50 border-slate-100 text-slate-300 cursor-not-allowed select-none'
                   }
                   ${isToday && cell.isCurrentMonth ? 'ring-2 ring-slate-900 border-transparent shadow-xs' : ''}
@@ -382,7 +382,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                   `}>
                     {cell.dayNumber}
                   </span>
-                  
+
                   {/* Today dot indicator */}
                   {isToday && <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-rose-500 rounded-full" title="Hoy" />}
                 </div>
@@ -403,8 +403,8 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
 
       {/* Selected Day Details Section (Slide down / Drawer behavior) */}
       {selectedDayKey && (
-        <div 
-          className="glass-card rounded-3xl p-6 border-2 border-slate-900 animate-in fade-in slide-in-from-bottom-4 duration-200" 
+        <div
+          className="glass-card rounded-3xl p-6 border-2 border-slate-900 animate-in fade-in slide-in-from-bottom-4 duration-200"
           id="day-expense-details"
         >
           <div className="flex items-center justify-between border-b border-slate-200/80 pb-4 mb-5">
@@ -415,7 +415,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                 {formattedSelectedDate}
               </h4>
             </div>
-            
+
             <button
               onClick={() => setSelectedDayKey(null)}
               className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 hover:text-slate-900 transition active:scale-95 cursor-pointer"
@@ -434,13 +434,13 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
               {selectedDayDetails?.map((exp) => {
                 const method = PAYMENT_METHODS.find((m) => m.id === exp.paymentMethod);
                 const categoryDef = PREDEFINED_CATEGORIES.find((c) => c.id === exp.category);
-                
+
                 return (
-                  <div 
+                  <div
                     key={exp.id}
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4.5 bg-white border border-slate-200/80 rounded-2xl hover:border-slate-300 transition shadow-xs"
                   >
-                    
+
                     {/* Item Details */}
                     <div className="flex items-start gap-3">
                       <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 mt-0.5">
@@ -450,10 +450,10 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                           <Receipt className="w-5 h-5 text-slate-900" />
                         )}
                       </div>
-                      
+
                       <div>
                         <p className="text-sm font-black text-slate-900">{exp.name}</p>
-                        
+
                         <div className="flex flex-wrap items-center gap-2 mt-1.5">
                           {/* Place / Platform */}
                           <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
@@ -462,7 +462,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
 
                           {/* Category badge */}
                           {exp.type === 'compra' && categoryDef && (
-                            <span 
+                            <span
                               className="text-[10px] font-bold px-2 py-0.5 rounded-md text-white shadow-xs"
                               style={{ backgroundColor: categoryDef.color }}
                             >
@@ -470,11 +470,10 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
                             </span>
                           )}
                           {exp.type === 'servicio' && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xs ${
-                              exp.id.startsWith('planned-recurrence-') 
-                                ? 'bg-amber-500 text-white animate-pulse' 
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xs ${exp.id.startsWith('planned-recurrence-')
+                                ? 'bg-amber-500 text-white animate-pulse'
                                 : 'bg-indigo-600 text-white'
-                            }`}>
+                              }`}>
                               {exp.id.startsWith('planned-recurrence-') ? 'Suscripción Próxima (No Pagada)' : 'Servicio Registrado'}
                             </span>
                           )}
@@ -492,7 +491,7 @@ export default function ExpenseCalendar({ items, servicePayments }: ExpenseCalen
 
                     {/* Cost Calculations */}
                     <div className="flex items-center justify-between sm:justify-end gap-5 border-t sm:border-t-0 border-slate-100 pt-3 sm:pt-0">
-                      
+
                       {/* Unit summary */}
                       {exp.type === 'compra' && exp.quantity > 1 && (
                         <div className="text-left sm:text-right">
