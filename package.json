@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "repro:b1": "node scripts/repro-b1-capital-bug.mjs",
-    "repro:migracion": "node scripts/repro-migracion.mjs"
+    "repro:migracion": "node scripts/repro-migracion.mjs",
+    "repro:ai-budget": "node scripts/repro-ai-budget.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

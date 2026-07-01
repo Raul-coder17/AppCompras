@@ -82,6 +82,10 @@ interface AIAssistantProps {
   servicePayments: ServicePayment[];
   cashBudget: number;
   cardBudget: number;
+  // Snapshots del "Presupuesto Inicial" (fuente de verdad). Base para editar el presupuesto
+  // desde la IA sin doble contar ingresos/apartados que ya están en cashBudget/cardBudget.
+  initialCashBudget?: number;
+  initialCardBudget?: number;
   categories: Category[];
   places: string[];
   serviceOptions: string[];
@@ -352,6 +356,8 @@ export default function AIAssistant({
   servicePayments,
   cashBudget,
   cardBudget,
+  initialCashBudget = 0,
+  initialCardBudget = 0,
   categories,
   places,
   serviceOptions,
@@ -774,12 +780,12 @@ Reglas importantes:
           },
           {
             name: 'set_budget',
-            description: 'Establece el monto del presupuesto de efectivo o tarjeta a un valor exacto.',
+            description: 'Fija el PRESUPUESTO INICIAL del mes (el punto de partida) de efectivo o tarjeta. NO fija el total disponible actual: los ingresos y apartados ya cargados se suman/restan aparte, así que el disponible se recalcula solo. Usar cuando el usuario quiere definir con cuánto arranca el mes.',
             parameters: {
               type: 'OBJECT',
               properties: {
                 type: { type: 'STRING', description: 'Tipo de presupuesto a modificar: "cash" o "card"' },
-                amount: { type: 'NUMBER', description: 'Nuevo monto exacto total' }
+                amount: { type: 'NUMBER', description: 'Monto inicial del mes (punto de partida), antes de sumar ingresos y restar apartados' }
               },
               required: ['type', 'amount']
             }
@@ -1464,15 +1470,37 @@ Reglas importantes:
 
   // Execution Handlers for Confirmed Tools
   const executeBudgetFunds = (args: { type: 'cash' | 'card'; amount: number }) => {
-    const currentVal = args.type === 'cash' ? cashBudget : cardBudget;
-    onUpdateBudget(args.type, currentVal + args.amount);
-    return `Se añadieron $${args.amount} al presupuesto de ${args.type === 'cash' ? 'efectivo' : 'tarjeta'}.`;
+    // Sumar sobre el SNAPSHOT inicial (no sobre el pool derivado), porque onUpdateBudget escribe
+    // el snapshot. Como pool = snapshot + ingresos − apartados, sumar amount al snapshot hace que
+    // el pool suba exactamente amount, sin doble contar ingresos/apartados ya cargados (B6).
+    const currentInitial = args.type === 'cash' ? initialCashBudget : initialCardBudget;
+    onUpdateBudget(args.type, currentInitial + args.amount);
+    return `Se añadieron $${args.amount} a tu presupuesto de ${args.type === 'cash' ? 'efectivo' : 'tarjeta'}.`;
   };
 
   const executeSetBudget = (args: { type: 'cash' | 'card'; amount: number }) => {
+    // Semántica intencional: fija el "Presupuesto Inicial" (snapshot) del mes, igual que el campo
+    // manual. El disponible se recalcula solo (snapshot + ingresos − apartados). Ver decisión en
+    // PLAN_BUG_CALCULO.md. NO forzamos aquí un total exacto en vivo.
     onUpdateBudget(args.type, args.amount);
-    return `Se estableció el presupuesto de ${args.type === 'cash' ? 'efectivo' : 'tarjeta'} en $${args.amount}.`;
+    return `Listo: dejé tu presupuesto INICIAL de ${args.type === 'cash' ? 'efectivo' : 'tarjeta'} en $${args.amount}. ` +
+      `Eso es tu punto de partida del mes; tus ingresos y apartados ya cargados se suman y se restan aparte, ` +
+      `así que el disponible que ves puede ser distinto a esa cifra.`;
   };
+
+  // Hook SOLO para desarrollo/tests e2e. Gateado con import.meta.env.DEV: en `npm run build`
+  // Vite reemplaza import.meta.env.DEV por `false` y Rollup elimina el bloque completo por
+  // dead-code elimination — NO queda ningún rastro (ni el string "__spendwiseAI") en el bundle
+  // de producción. Permite ejercitar los executores reales de los tools de presupuesto de la IA
+  // sin pasar por Gemini, para blindar el fix de B6 (add_budget_funds suma sobre el snapshot).
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      (window as unknown as { __spendwiseAI?: unknown }).__spendwiseAI = {
+        budgetFunds: (type: 'cash' | 'card', amount: number) => executeBudgetFunds({ type, amount }),
+        setBudget: (type: 'cash' | 'card', amount: number) => executeSetBudget({ type, amount })
+      };
+    }
+  });
 
   const executeToggleItemBought = (args: { name: string }) => {
     if (!args || !args.name) return 'Por favor especifica el nombre del artículo.';

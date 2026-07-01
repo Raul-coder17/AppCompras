@@ -131,6 +131,7 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
 | B3 | Banner "PRESUPUESTO EXCEDIDO" compara comprometido (spent+planned) contra disponible neto de apartados. Falsa alarma al planificar o apartar. | `BudgetCard.tsx:302-303, 316-322` | Media | **Resuelto (2026-07-01)** |
 | B4 | `cashSpent`/`cardSpent` suman ítems `bought` sin filtrar por mes (servicios sí se filtran). | `App.tsx:1357` vs `:1363-1366` | Media/Baja | Pendiente |
 | B5 | Asimetría del ledger: ingresos/apartados mutan el pool, gastos no. Terreno de raíz de todo lo anterior. | `App.tsx:460-497` vs `BudgetCard.tsx:304-305` | Media (estructural) | **Resuelto (2026-07-01)** — el refactor B1/B2 eliminó TODA mutación imperativa del pool (grep de `setCashBudget`/`setCardBudget` = 0); ahora pool y restante son 100% derivados (`snapshot + ingresos − apartados`, y `remaining = pool − spent`). La clase "doble conteo / pérdida de saldo" que B5 marcaba como raíz queda cerrada. Nota: el filtro por mes de `spent` (B4) es un tema aparte, aún Pendiente; no reabre B5. |
+| B6 | Regresión del fix B1/B2 en la capa de IA: `add_budget_funds` sumaba sobre el pool derivado y lo escribía en el snapshot → doble conteo de ingresos/apartados. `set_budget` con descripción/copy engañosos ("total exacto"). | `AIAssistant.tsx:1472-1489` (executores), `:776-786` (tool def) | Alta (efectivo cuando hay ingresos/apartados) | **Resuelto (2026-07-01)** |
 
 ---
 
@@ -307,6 +308,36 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
   - **Verificación:** `npm run repro:migracion` **15/15 PASS** ("✅ MIGRACIÓN CORRECTA"),
     `npm run repro:b1` sigue "✅ FIX B1/B2 VERIFICADO", `npm run lint` y `npm run build` OK.
 
+- **2026-07-01 (madrugada, cont. 3) — B6: fix de los tools de presupuesto de la IA.** Un grep
+  global de `cobuy_budget_cash/card` (pedido por el usuario) confirmó que NINGÚN archivo fuera
+  del guard de migración lee esas claves. Pero destapó una regresión del fix B1/B2 en la capa de
+  function-calling de la IA (`src/components/AIAssistant.tsx`):
+  - **`add_budget_funds` (`executeBudgetFunds`) — BUG corregido:** sumaba el monto sobre el pool
+    DERIVADO (`cashBudget`) y lo escribía en el snapshot vía `onUpdateBudget`, duplicando
+    ingresos/apartados. Con ingresos $400 y apartado $50, "+$100" subía el pool en +$450 (a
+    $1300). Fix: sumar sobre el snapshot (`initialCashBudget`/`initialCardBudget`, nuevos props
+    pasados desde `App.tsx`), de modo que el pool sube por EXACTAMENTE el monto pedido.
+  - **`set_budget` (`executeSetBudget`) — decisión + comunicación:** se mantiene la semántica de
+    fijar el snapshot inicial (igual que el campo manual), pero se reescribió la descripción del
+    tool (lo que ve Gemini) y el mensaje de confirmación al usuario para aclarar, en lenguaje
+    simple para adultos mayores, que fija el punto de partida del mes y que ingresos/apartados se
+    suman/restan aparte. No se fuerza un total exacto en vivo.
+  - **Prueba nueva:** `scripts/repro-ai-budget.mjs` (`npm run repro:ai-budget`) ejercita los
+    executores REALES vía un hook e2e (`window.__spendwiseAI`) con ingresos y apartados
+    presentes. **10/10 PASS**: `add_budget_funds`
+    sube el pool por exactamente $100/$250 (el bug daba +$450), `set_budget` fija el inicial en
+    $1000 y el disponible se recalcula a $1350, con el copy aclaratorio verificado.
+  - **Verificación completa:** `repro:ai-budget` 10/10, `repro:b1` y `repro:migracion` siguen en
+    verde, `npm run lint` y `npm run build` OK.
+  - **Ajuste del hook e2e (2026-07-01, cont.):** el hook `window.__spendwiseAI` en
+    `AIAssistant.tsx` se gatea con `import.meta.env.DEV` (no con un flag de runtime), de modo que
+    Vite/Rollup lo eliminan por dead-code elimination en `npm run build`. Verificado: `grep` del
+    bundle `dist/assets/*.js` da **0 coincidencias** de `__spendwiseAI`/`__SPENDWISE_E2E__` (con
+    un string de control confirmando que el grep sí inspecciona el bundle). Se agregó
+    `src/vite-env.d.ts` (`/// <reference types="vite/client" />`) para tipar `import.meta.env`,
+    ya que `tsconfig` limita `types` a `vite-plugin-pwa/client`. El repro corre contra dev
+    (DEV=true), así que no necesita ningún flag.
+
 ---
 
 ## Decisiones tomadas
@@ -331,3 +362,10 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
   re-editar su inicial, que ahora funciona bien). El snapshot se persiste **sincrónicamente**
   en la rama de migración para ser seguro ante la doble invocación de `<StrictMode>`. No
   re-preguntar; si se cambia, revisar el guard en el `useEffect` de carga de `App.tsx`.
+- (2026-07-01) **Semántica de `set_budget` (tool de IA):** fija el **presupuesto INICIAL**
+  (snapshot) del mes, igual que el campo manual "Presupuesto Inicial" — NO fija el total
+  disponible en vivo. Decisión tomada: NO se calcula un valor distinto para forzar que el total
+  quede exacto; lo que se ajustó es la **comunicación** (descripción del tool que ve Gemini +
+  mensaje de confirmación al usuario, en lenguaje simple: "es tu punto de partida del mes; tus
+  ingresos y apartados se suman/restan aparte"). No re-preguntar. `add_budget_funds`, en cambio,
+  sí sube el disponible por exactamente el monto pedido (suma sobre el snapshot).

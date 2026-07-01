@@ -2463,6 +2463,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
         servicePayments={servicePayments}
         cashBudget={cashBudget}
         cardBudget={cardBudget}
+        initialCashBudget={initialCashBudgetSnapshot}
+        initialCardBudget={initialCardBudgetSnapshot}
         categories={categories}
         places={places}
         serviceOptions={serviceOptions}
