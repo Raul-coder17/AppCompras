@@ -51,6 +51,8 @@ export interface BudgetSummary {
   cashPlanned: number;      // Planificado en efectivo
   cardSpent: number;        // Gastado en tarjeta/transferencia
   cardPlanned: number;      // Planificado en tarjeta/transferencia
+  initialCashBudget: number; // Snapshot inicial efectivo (editable, fuente de verdad)
+  initialCardBudget: number; // Snapshot inicial tarjeta (editable, fuente de verdad)
 }
 
 export const PREDEFINED_CATEGORIES: Category[] = [

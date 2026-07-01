@@ -7,3 +7,6 @@ coverage/
 .env*
 !.env.example
 *.zip
+scripts/repro-b1-output/
+test-results/
+playwright-report/

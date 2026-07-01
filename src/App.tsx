@@ -116,8 +116,9 @@ export default function App() {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [archivedItems, setArchivedItems] = useState<ArchivedItem[]>([]);
   const [servicePayments, setServicePayments] = useState<ServicePayment[]>([]);
-  const [cashBudget, setCashBudget] = useState<number>(0);
-  const [cardBudget, setCardBudget] = useState<number>(DEFAULT_BUDGET);
+  // cashBudget / cardBudget YA NO son estado mutado a mano: se derivan más abajo
+  // (useMemo) de initialCash/CardBudgetSnapshot + ingresos − apartados.
+  // Ver causa raíz B1/B2 en PLAN_BUG_CALCULO.md.
   const [places, setPlaces] = useState<string[]>([]);
   const [serviceOptions, setServiceOptions] = useState<string[]>(PREDEFINED_SERVICES);
   const [selectedStoreFilter, setSelectedStoreFilter] = useState<string | null>(null);
@@ -142,6 +143,29 @@ export default function App() {
   // starting value instead of a retrospective cashBudget − totalIncomes formula.
   const [initialCashBudgetSnapshot, setInitialCashBudgetSnapshot] = useState<number>(0);
   const [initialCardBudgetSnapshot, setInitialCardBudgetSnapshot] = useState<number>(0);
+
+  // Derived available pools — ÚNICA fuente de verdad: snapshot inicial + ingresos del
+  // mes − apartados activos. Antes eran estado mutado a mano y editar "Presupuesto
+  // Inicial" los pisaba, borrando ingresos/apartados (B1/B2, PLAN_BUG_CALCULO.md).
+  const cashBudget = useMemo(() => {
+    const incomesCash = incomes
+      .filter(i => i.paymentMethod === 'efectivo')
+      .reduce((acc, c) => acc + c.amount, 0);
+    const apartadosCash = apartados
+      .filter(a => a.paymentMethod === 'efectivo')
+      .reduce((acc, a) => acc + a.amount, 0);
+    return initialCashBudgetSnapshot + incomesCash - apartadosCash;
+  }, [initialCashBudgetSnapshot, incomes, apartados]);
+
+  const cardBudget = useMemo(() => {
+    const incomesCard = incomes
+      .filter(i => i.paymentMethod !== 'efectivo')
+      .reduce((acc, c) => acc + c.amount, 0);
+    const apartadosCard = apartados
+      .filter(a => a.paymentMethod === 'tarjeta')
+      .reduce((acc, a) => acc + a.amount, 0);
+    return initialCardBudgetSnapshot + incomesCard - apartadosCard;
+  }, [initialCardBudgetSnapshot, incomes, apartados]);
 
   // Navigation and sidebar states
   const [activeSection, setActiveSection] = useState<'capital' | 'shopping-list' | 'incomes' | 'services' | 'reports'>('capital');
@@ -190,9 +214,8 @@ export default function App() {
   useEffect(() => {
     try {
       const storedItems = localStorage.getItem('cobuy_shopping_items');
-      const storedBudget = localStorage.getItem('cobuy_total_budget');
-      const storedCashBudget = localStorage.getItem('cobuy_budget_cash');
-      const storedCardBudget = localStorage.getItem('cobuy_budget_card');
+      // Claves legacy (cobuy_total_budget/budget_cash/budget_card): se leen SOLO dentro de la
+      // rama de migración (más abajo). Una vez migrado nunca se vuelven a leer.
       const storedCategories = localStorage.getItem('cobuy_categories');
       const storedArchivedItems = localStorage.getItem('cobuy_archived_items');
       const storedPlaces = localStorage.getItem('cobuy_places');
@@ -250,28 +273,16 @@ export default function App() {
         setCategories(PREDEFINED_CATEGORIES);
       }
 
-      if (storedCashBudget || storedCardBudget) {
-        setCashBudget(parseFloat(storedCashBudget || '0') || 0);
-        setCardBudget(parseFloat(storedCardBudget || '0') || 0);
-      } else if (storedBudget) {
-        setCashBudget(0);
-        setCardBudget(parseFloat(storedBudget) || DEFAULT_BUDGET);
-      } else {
-        setCashBudget(0);
-        setCardBudget(DEFAULT_BUDGET);
-      }
-
-      // Load new capital management states
+      // Load capital management states first — needed to migrate to the derived-pool model.
       const storedIncomes = localStorage.getItem('cobuy_incomes');
       const storedHistory = localStorage.getItem('cobuy_history_months');
       const storedCurrentMonth = localStorage.getItem('cobuy_current_month');
       const storedApartados = localStorage.getItem('cobuy_apartados');
 
-      if (storedIncomes) {
-        setIncomes(JSON.parse(storedIncomes));
-      } else {
-        setIncomes([]);
-      }
+      const parsedIncomes: Income[] = storedIncomes ? JSON.parse(storedIncomes) : [];
+      const parsedApartados: Apartado[] = storedApartados ? JSON.parse(storedApartados) : [];
+      setIncomes(parsedIncomes);
+      setApartados(parsedApartados);
 
       if (storedHistory) {
         setMonthlyHistory(JSON.parse(storedHistory));
@@ -279,16 +290,59 @@ export default function App() {
         setMonthlyHistory([]);
       }
 
-      if (storedApartados) {
-        setApartados(JSON.parse(storedApartados));
-      } else {
-        setApartados([]);
-      }
-
+      // Modelo de snapshot (B1/B2): los snapshots son la ÚNICA fuente de verdad del inicial.
+      // GUARD DE MIGRACIÓN EXPLÍCITO: si ambas claves de snapshot ya existen, el usuario YA está
+      // migrado → se leen directo y NUNCA se recalcula desde las claves legacy
+      // (cobuy_budget_cash/card). Sin este guard, una edición del "Presupuesto Inicial" podría
+      // perderse en la siguiente recarga al re-derivarse desde el pool legacy viejo.
       const storedInitialCash = localStorage.getItem('cobuy_initial_cash_snapshot');
       const storedInitialCard = localStorage.getItem('cobuy_initial_card_snapshot');
-      if (storedInitialCash) setInitialCashBudgetSnapshot(parseFloat(storedInitialCash) || 0);
-      if (storedInitialCard) setInitialCardBudgetSnapshot(parseFloat(storedInitialCard) || 0);
+
+      if (storedInitialCash !== null && storedInitialCard !== null) {
+        // Ya migrado: snapshots como fuente de verdad; se IGNORAN las claves legacy.
+        setInitialCashBudgetSnapshot(parseFloat(storedInitialCash) || 0);
+        setInitialCardBudgetSnapshot(parseFloat(storedInitialCard) || 0);
+      } else {
+        // Primera vez (datos legacy o usuario nuevo): migrar UNA sola vez desde el "pool vivo"
+        // viejo. snapshot = pool − ingresos + apartados, para reproducir lo que el usuario veía.
+        const storedBudget = localStorage.getItem('cobuy_total_budget');
+        const storedCashBudget = localStorage.getItem('cobuy_budget_cash');
+        const storedCardBudget = localStorage.getItem('cobuy_budget_card');
+        let migratedCashPool: number;
+        let migratedCardPool: number;
+        if (storedCashBudget || storedCardBudget) {
+          migratedCashPool = parseFloat(storedCashBudget || '0') || 0;
+          migratedCardPool = parseFloat(storedCardBudget || '0') || 0;
+        } else if (storedBudget) {
+          migratedCashPool = 0;
+          migratedCardPool = parseFloat(storedBudget) || DEFAULT_BUDGET;
+        } else {
+          migratedCashPool = 0;
+          migratedCardPool = DEFAULT_BUDGET;
+        }
+
+        const migIncCash = parsedIncomes.filter(i => i.paymentMethod === 'efectivo').reduce((a, c) => a + c.amount, 0);
+        const migIncCard = parsedIncomes.filter(i => i.paymentMethod !== 'efectivo').reduce((a, c) => a + c.amount, 0);
+        const migApCash = parsedApartados.filter(a => a.paymentMethod === 'efectivo').reduce((a, c) => a + c.amount, 0);
+        const migApCard = parsedApartados.filter(a => a.paymentMethod === 'tarjeta').reduce((a, c) => a + c.amount, 0);
+        const migratedSnapshotCash = migratedCashPool - migIncCash + migApCash;
+        const migratedSnapshotCard = migratedCardPool - migIncCard + migApCard;
+
+        // Persistir el snapshot en localStorage AQUÍ MISMO (sincrónico), no solo vía setState.
+        // Esto hace la migración segura ante la doble invocación de <StrictMode> en dev: la 2ª
+        // corrida del effect ya verá las claves de snapshot y entrará por la rama "ya migrado",
+        // en vez de re-migrar desde una clave legacy que este bloque acaba de borrar.
+        localStorage.setItem('cobuy_initial_cash_snapshot', String(migratedSnapshotCash));
+        localStorage.setItem('cobuy_initial_card_snapshot', String(migratedSnapshotCard));
+        setInitialCashBudgetSnapshot(migratedSnapshotCash);
+        setInitialCardBudgetSnapshot(migratedSnapshotCard);
+
+        // Limpieza única: borrar las claves legacy para que no quede NINGÚN camino futuro que
+        // recalcule el snapshot desde ellas. El pool disponible no se persiste: se deriva (useMemo).
+        localStorage.removeItem('cobuy_budget_cash');
+        localStorage.removeItem('cobuy_budget_card');
+        localStorage.removeItem('cobuy_total_budget');
+      }
 
       if (storedCurrentMonth) {
         setCurrentMonth(storedCurrentMonth);
@@ -302,8 +356,6 @@ export default function App() {
       console.warn("No se pudo cargar datos desde localStorage", e);
       setItems(DEFAULT_ITEMS);
       setArchivedItems([]);
-      setCashBudget(0);
-      setCardBudget(DEFAULT_BUDGET);
       setCategories(PREDEFINED_CATEGORIES);
       setPlaces([]);
       setServicePayments([]);
@@ -311,8 +363,9 @@ export default function App() {
       setIncomes([]);
       setMonthlyHistory([]);
       setApartados([]);
+      // Pools derivados: fijar los snapshots equivale a "cash=0, card=DEFAULT_BUDGET".
       setInitialCashBudgetSnapshot(0);
-      setInitialCardBudgetSnapshot(0);
+      setInitialCardBudgetSnapshot(DEFAULT_BUDGET);
     } finally {
       setIsInitialized(true);
     }
@@ -337,15 +390,10 @@ export default function App() {
     }
   }, [archivedItems, isInitialized]);
 
-  useEffect(() => {
-    if (!isInitialized) return;
-    try {
-      localStorage.setItem('cobuy_budget_cash', cashBudget.toString());
-      localStorage.setItem('cobuy_budget_card', cardBudget.toString());
-    } catch (e) {
-      console.error("Error al guardar presupuesto en localStorage", e);
-    }
-  }, [cashBudget, cardBudget, isInitialized]);
+  // NOTA: el pool disponible (cashBudget/cardBudget) YA NO se persiste. Es un valor derivado
+  // (useMemo) de initialCash/CardBudgetSnapshot + ingresos − apartados. Lo único que se persiste
+  // es el snapshot (más abajo). Persistir el pool re-crearía las claves legacy que la migración
+  // borra y reabriría el riesgo de recálculo (ver guard de migración y B1/B2).
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -455,23 +503,15 @@ export default function App() {
       id: `income-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       createdAt: incomeData.createdAt || toLocalISOString()
     };
+    // El pool (cashBudget/cardBudget) se deriva de incomes: no se muta a mano.
     setIncomes((prev) => [newIncome, ...prev]);
-    if (incomeData.paymentMethod === 'efectivo') {
-      setCashBudget((prev) => prev + incomeData.amount);
-    } else {
-      setCardBudget((prev) => prev + incomeData.amount);
-    }
   };
 
   const handleDeleteIncome = (id: string) => {
     const target = incomes.find(i => i.id === id);
     if (!target) return;
+    // El pool se recalcula solo al quitar el registro de incomes.
     setIncomes(prev => prev.filter(i => i.id !== id));
-    if (target.paymentMethod === 'efectivo') {
-      setCashBudget(prev => Math.max(0, prev - target.amount));
-    } else {
-      setCardBudget(prev => Math.max(0, prev - target.amount));
-    }
   };
 
   // Apartados handlers
@@ -490,12 +530,8 @@ export default function App() {
       createdAt: toLocalISOString()
     };
 
+    // Reservar un apartado reduce el pool automáticamente (el useMemo resta apartados).
     setApartados((prev) => [...prev, newApartado]);
-    if (paymentMethod === 'efectivo') {
-      setCashBudget((prev) => prev - amount);
-    } else {
-      setCardBudget((prev) => prev - amount);
-    }
   };
 
   const handleDepositToApartado = (id: string, amount: number) => {
@@ -506,14 +542,10 @@ export default function App() {
     const pool = target.paymentMethod === 'efectivo' ? cashBudget : cardBudget;
     if (amount > pool) return;
 
+    // Aumentar el apartado reduce el pool derivado; no se muta a mano.
     setApartados((prev) => prev.map(ap =>
       ap.id === id ? { ...ap, amount: ap.amount + amount } : ap
     ));
-    if (target.paymentMethod === 'efectivo') {
-      setCashBudget((prev) => prev - amount);
-    } else {
-      setCardBudget((prev) => prev - amount);
-    }
   };
 
   const handleWithdrawFromApartado = (id: string, amount: number) => {
@@ -523,26 +555,18 @@ export default function App() {
     const actualWithdraw = Math.min(target.amount, amount);
     if (actualWithdraw <= 0) return;
 
+    // Retirar del apartado devuelve el monto al pool derivado automáticamente.
     setApartados((prev) => prev.map(ap =>
       ap.id === id ? { ...ap, amount: Math.max(0, ap.amount - actualWithdraw) } : ap
     ));
-    if (target.paymentMethod === 'efectivo') {
-      setCashBudget((prev) => prev + actualWithdraw);
-    } else {
-      setCardBudget((prev) => prev + actualWithdraw);
-    }
   };
 
   const handleDeleteApartado = (id: string) => {
     const target = apartados.find((ap) => ap.id === id);
     if (!target) return;
 
+    // Eliminar el apartado devuelve su dinero al pool libre (recálculo automático).
     setApartados((prev) => prev.filter((ap) => ap.id !== id));
-    if (target.paymentMethod === 'efectivo') {
-      setCashBudget((prev) => prev + target.amount);
-    } else {
-      setCardBudget((prev) => prev + target.amount);
-    }
   };
 
   // Month closing wizard handler
@@ -622,10 +646,11 @@ export default function App() {
     const nextMonthStr = nextMonthDate.getFullYear() + '-' + String(nextMonthDate.getMonth() + 1).padStart(2, '0');
 
     setCurrentMonth(nextMonthStr);
-    setCashBudget(newCashBudget);
-    setCardBudget(newCardBudget);
-    setInitialCashBudgetSnapshot(newCashBudget);
-    setInitialCardBudgetSnapshot(newCardBudget);
+    // Pool derivado = snapshot + ingresos − apartados. Los apartados PERSISTEN al cerrar
+    // y newCashBudget (del wizard) ya viene neto de apartados, así que el snapshot debe
+    // incluirlos para que el pool libre derivado sea exactamente newCashBudget.
+    setInitialCashBudgetSnapshot(newCashBudget + totalApartadosCash);
+    setInitialCardBudgetSnapshot(newCardBudget + totalApartadosCard);
     setIncomes([]);
 
     // Clear items: carry over pending if requested
@@ -895,8 +920,6 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
     const historyUpdates: Record<string, { items: ShoppingItem[], servicePayments: ServicePayment[], incomes: Income[] }> = {};
 
-    let cardBudgetAdjustment = 0;
-
     itemsToImport.forEach((item, idx) => {
       const itemDate = new Date(item.date);
       const itemYear = itemDate.getFullYear();
@@ -915,7 +938,6 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
             externalId: item.externalId
           };
           newIncomes.push(newInc);
-          cardBudgetAdjustment += newInc.amount;
         } else if (item.type === 'service') {
           const newServ: ServicePayment = {
             id: `service-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
@@ -985,8 +1007,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
 
     if (newItems.length > 0) setItems(prev => [...newItems, ...prev]);
     if (newServices.length > 0) setServicePayments(prev => [...newServices, ...prev]);
+    // Los ingresos importados entran a incomes; el pool (cardBudget) los deriva solo.
     if (newIncomes.length > 0) setIncomes(prev => [...newIncomes, ...prev]);
-    if (cardBudgetAdjustment !== 0) setCardBudget(prev => prev + cardBudgetAdjustment);
 
     setMonthlyHistory(prev => {
       const updatedHistory = [...prev];
@@ -1146,12 +1168,13 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
   };
 
   const handleUpdateBudget = (type: 'cash' | 'card', newBudget: number) => {
+    // Editar "Presupuesto Inicial" escribe SOLO sobre el snapshot (fuente de verdad).
+    // El pool disponible se recalcula solo (snapshot + ingresos − apartados), por lo que
+    // los ingresos y apartados ya registrados NO se pierden. Fix de B1/B2.
     if (type === 'cash') {
-      setCashBudget(newBudget);
       setInitialCashBudgetSnapshot(newBudget);
       return;
     }
-    setCardBudget(newBudget);
     setInitialCardBudgetSnapshot(newBudget);
   };
 
@@ -1225,9 +1248,8 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     setServicePayments([]);
     setIncomes([]);
     setApartados([]);
-    setCashBudget(0);
-    setCardBudget(0);
     setMonthlyHistory([]);
+    // Pools derivados: snapshots en 0 dejan cashBudget/cardBudget en 0.
     setInitialCashBudgetSnapshot(0);
     setInitialCardBudgetSnapshot(0);
     const now = new Date();
@@ -1379,7 +1401,9 @@ Responde ÚNICAMENTE con un arreglo JSON válido (sin usar bloques de código ma
     cashSpent,
     cashPlanned,
     cardSpent,
-    cardPlanned
+    cardPlanned,
+    initialCashBudget: initialCashBudgetSnapshot,
+    initialCardBudget: initialCardBudgetSnapshot
   };
 
 

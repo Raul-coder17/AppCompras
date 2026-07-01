@@ -40,11 +40,12 @@ export default function BudgetCard({
   onWithdrawFromApartado,
   onDeleteApartado
 }: BudgetCardProps) {
-  const { totalBudget, spent, planned, remaining, cashBudget, cardBudget, cashSpent, cashPlanned, cardSpent, cardPlanned } = summary;
+  const { totalBudget, spent, planned, remaining, cashBudget, cardBudget, cashSpent, cashPlanned, cardSpent, cardPlanned, initialCashBudget, initialCardBudget } = summary;
   const [isEditingCash, setIsEditingCash] = useState(false);
   const [isEditingCard, setIsEditingCard] = useState(false);
-  const [tempCashBudget, setTempCashBudget] = useState(cashBudget.toString());
-  const [tempCardBudget, setTempCardBudget] = useState(cardBudget.toString());
+  // El campo editable es el "Presupuesto Inicial" (snapshot), NO el pool derivado.
+  const [tempCashBudget, setTempCashBudget] = useState(initialCashBudget.toString());
+  const [tempCardBudget, setTempCardBudget] = useState(initialCardBudget.toString());
 
   // Apartados interactive states
   const [showAddApartadoType, setShowAddApartadoType] = useState<'cash' | 'card' | null>(null);
@@ -56,15 +57,15 @@ export default function BudgetCard({
 
   useEffect(() => {
     if (!isEditingCash) {
-      setTempCashBudget(cashBudget.toString());
+      setTempCashBudget(initialCashBudget.toString());
     }
-  }, [cashBudget, isEditingCash]);
+  }, [initialCashBudget, isEditingCash]);
 
   useEffect(() => {
     if (!isEditingCard) {
-      setTempCardBudget(cardBudget.toString());
+      setTempCardBudget(initialCardBudget.toString());
     }
-  }, [cardBudget, isEditingCard]);
+  }, [initialCardBudget, isEditingCard]);
 
   const handleSaveCash = () => {
     const value = parseFloat(tempCashBudget);
@@ -530,11 +531,11 @@ export default function BudgetCard({
               ) : (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="text-xs font-extrabold text-slate-600">
-                    ${cashBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${initialCashBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <button
                     onClick={() => {
-                      setTempCashBudget(cashBudget.toString());
+                      setTempCashBudget(initialCashBudget.toString());
                       setIsEditingCash(true);
                     }}
                     className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 rounded-lg transition cursor-pointer"
@@ -640,11 +641,11 @@ export default function BudgetCard({
               ) : (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="text-xs font-extrabold text-slate-600">
-                    ${cardBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${initialCardBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <button
                     onClick={() => {
-                      setTempCardBudget(cardBudget.toString());
+                      setTempCardBudget(initialCardBudget.toString());
                       setIsEditingCard(true);
                     }}
                     className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 rounded-lg transition cursor-pointer"

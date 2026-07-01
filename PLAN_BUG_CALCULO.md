@@ -73,6 +73,14 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
 - **Existe `initialCashBudgetSnapshot`** (`App.tsx:143-144`) pensado como verdadero
   "inicial", pero **NO se muestra en la tarjeta** — solo se consume al cerrar mes
   (`App.tsx:596-597`). Es decir, la UI muestra y edita la variable equivocada.
+- **Corrección tras reproducción automatizada (2026-07-01, ver `REPRO_B1_REPORTE.md`):**
+  `handleUpdateBudget` (`App.tsx:1148-1156`) sobrescribe `cashBudget` **y también**
+  `initialCashBudgetSnapshot` con el mismo valor en el mismo golpe. El snapshot NO
+  sobrevive intacto como se asumía originalmente — queda igual de corrompido que el
+  pool visible, y no hay ninguna variable de respaldo en el estado de React para
+  reconstruir el valor correcto tras el error. Sí sobreviven intactos los registros
+  individuales en `cobuy_incomes`/`cobuy_apartados` (el dato para reconstruir el pool
+  existe en localStorage, pero la función de edición no lo usa).
 - **Reproducción exacta:**
   1. Inicio de mes: `cashBudget = 1000`.
   2. Agregás ingreso efectivo +2000 (sueldo) → pool = 3000. Restante = 3000. ✔️ correcto.
@@ -118,17 +126,17 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
 
 | # | Problema | Archivo:línea | Severidad | Estado |
 |---|----------|---------------|-----------|--------|
-| B1 | Editar "Presupuesto Inicial" sobrescribe el pool vivo y borra ingresos/apartados acumulados → falso "Sobregirado". | `BudgetCard.tsx:526-542`, `App.tsx:1148-1156` | Alta | Pendiente |
-| B2 | Semántica ambigua del pool; `initialCashBudgetSnapshot` existe pero no se usa en el display (solo al cerrar mes). | `App.tsx:143-144`, `:596-597`, `BudgetCard.tsx:304-305` | Media-Alta | Pendiente |
+| B1 | Editar "Presupuesto Inicial" sobrescribe el pool vivo y borra ingresos/apartados acumulados → falso "Sobregirado". | `BudgetCard.tsx:526-542`, `App.tsx:1148-1156` | Alta | **Resuelto (2026-07-01)** |
+| B2 | Semántica ambigua del pool; `initialCashBudgetSnapshot` existe pero no se usa en el display (solo al cerrar mes). | `App.tsx:143-144`, `:596-597`, `BudgetCard.tsx:304-305` | Media-Alta | **Resuelto (2026-07-01)** |
 | B3 | Banner "PRESUPUESTO EXCEDIDO" compara comprometido (spent+planned) contra disponible neto de apartados. Falsa alarma al planificar o apartar. | `BudgetCard.tsx:302-303, 316-322` | Media | **Resuelto (2026-07-01)** |
 | B4 | `cashSpent`/`cardSpent` suman ítems `bought` sin filtrar por mes (servicios sí se filtran). | `App.tsx:1357` vs `:1363-1366` | Media/Baja | Pendiente |
-| B5 | Asimetría del ledger: ingresos/apartados mutan el pool, gastos no. Terreno de raíz de todo lo anterior. | `App.tsx:460-497` vs `BudgetCard.tsx:304-305` | Media (estructural) | Pendiente |
+| B5 | Asimetría del ledger: ingresos/apartados mutan el pool, gastos no. Terreno de raíz de todo lo anterior. | `App.tsx:460-497` vs `BudgetCard.tsx:304-305` | Media (estructural) | **Resuelto (2026-07-01)** — el refactor B1/B2 eliminó TODA mutación imperativa del pool (grep de `setCashBudget`/`setCardBudget` = 0); ahora pool y restante son 100% derivados (`snapshot + ingresos − apartados`, y `remaining = pool − spent`). La clase "doble conteo / pérdida de saldo" que B5 marcaba como raíz queda cerrada. Nota: el filtro por mes de `spent` (B4) es un tema aparte, aún Pendiente; no reabre B5. |
 
 ---
 
 ## Plan de acción (ordenado por prioridad)
 
-### Paso 1 — Arreglar B1/B2 (falso sobregiro tras editar): fuente única de verdad
+### Paso 1 — Arreglar B1/B2 (falso sobregiro tras editar): fuente única de verdad — ✅ Resuelto 2026-07-01
 - Opción recomendada: separar claramente **"saldo inicial del mes"** (editable, =
   `initialCashBudgetSnapshot`) de **"saldo disponible"** (derivado). Mostrar/editar el
   snapshot en la tarjeta; derivar el pool vivo como
@@ -136,6 +144,8 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
 - Trade-off: requiere reescribir cómo se actualiza el pool (hoy imperativo). Encaja con
   el hook `useBudget` propuesto en `PLAN_ARQUITECTURA.md` (A1). Se puede hacer acotado
   sin el refactor completo si hace falta rapidez.
+- **Implementado** exactamente con esta opción — ver detalle en "Historial de sesiones"
+  (2026-07-01 madrugada) y verificación en `REPRO_B1_REPORTE.md`.
 
 ### Paso 2 — Arreglar B3 (banner falso) — ✅ Resuelto 2026-07-01
 - Separar dos indicadores: (a) "comprometido" = `(spent+planned)/presupuestoTotalBruto`
@@ -185,12 +195,139 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
   _Falta:_ verificación manual en el navegador (planificar sin gastar → no debe salir
   el banner rojo; forzar gasto > disponible → sí debe salir) y luego abordar B1/B2.
 
+- **2026-07-01 (noche)** — Reproducción automatizada y determinística de B1 con
+  Playwright, sin depender del historial real de ningún usuario. Se agregó
+  `@playwright/test` como devDependency (`npx playwright install chromium` para el
+  binario) y se creó `scripts/repro-b1-capital-bug.mjs`, reusable después de aplicar
+  el fix (`npm run repro:b1`).
+  - El script levanta su propio dev server aislado (puerto 3100), siembra
+    `localStorage` limpio (`cobuy_*` en cero, sin items/ingresos/apartados) en un
+    contexto de navegador nuevo por corrida, ejecuta la secuencia de "varios días"
+    pedida, y lee el estado real vía `page.evaluate(() => localStorage)` — nunca la
+    UI — después de cada paso.
+  - Corrió 3 escenarios: **control** (sin editar "Presupuesto Inicial"), **with-edit-0**
+    (edición a $0 en el día 4) y **with-edit-50** (edición a $50 en el día 4).
+  - **Resultado:** el control cumple la fórmula `pool = inicial + ingresos − apartados`
+    en los 6 pasos sin ninguna divergencia. Ambas corridas con edición divergen
+    exactamente en el día 4 (el paso de editar "Presupuesto Inicial"), perdiendo
+    **$400** en ambos casos (ingresos efectivo acumulados $500 − apartados efectivo
+    acumulados $100), **independientemente del valor escrito** — confirma que el bug
+    es una sobrescritura total del pool, no un error de cálculo sobre el valor
+    ingresado. En el día 4/5 `remainingCash` queda negativo en ambas corridas con
+    edición, confirmando que esto dispara el falso "Sobregirado" reportado
+    originalmente por el usuario.
+  - **Hallazgo nuevo respecto a lo documentado:** `handleUpdateBudget`
+    (`App.tsx:1148-1156`) sobrescribe `cashBudget` **y** `initialCashBudgetSnapshot`
+    en el mismo golpe — el snapshot NO sobrevive intacto como se asumía en la causa
+    raíz #1 original; no queda ninguna variable de respaldo en el estado de React
+    para reconstruir el valor correcto. Sí sobreviven intactos los registros
+    individuales en `cobuy_incomes`/`cobuy_apartados` (el dato para reconstruir el
+    pool correcto existe en localStorage, pero la función de edición no lo usa).
+  - Reporte completo con tablas paso a paso: `REPRO_B1_REPORTE.md` (raíz del repo,
+    regenerable con `npm run repro:b1`).
+  - No se tocó lógica de la app en esta sesión — solo instrumentación de prueba.
+  _Falta:_ aplicar el fix de B1/B2 (Paso 1 más arriba) y volver a correr
+  `npm run repro:b1` para confirmar que las 3 corridas dejan de divergir.
+
+- **2026-07-01 (madrugada) — FIX de B1/B2 aplicado y verificado.** Se implementó el
+  modelo derivado (Paso 1). Cambios:
+  - **`src/App.tsx`:**
+    - `cashBudget`/`cardBudget` dejaron de ser `useState` y pasaron a **derivarse** con
+      `useMemo`: `snapshot + ingresos(del pool) − apartados(del pool)`. Los snapshots
+      `initialCashBudgetSnapshot`/`initialCardBudgetSnapshot` son la única fuente de verdad.
+    - `handleUpdateBudget` reescrito para escribir **solo** sobre el snapshot (ya no
+      existe `setCashBudget`/`setCardBudget` en ningún handler — verificado por grep global).
+    - Handlers de ingresos (`handleAddIncome`/`handleDeleteIncome`) y de apartados
+      (add/deposit/withdraw/delete) dejaron de mutar el pool: solo agregan/quitan el
+      registro y el `useMemo` recalcula.
+    - `handleConfirmImport` (CSV): eliminado `cardBudgetAdjustment`/`setCardBudget`; los
+      ingresos importados entran a `incomes` y el pool los deriva (evita doble conteo).
+    - `handleConfirmCloseMonth`: como los apartados persisten al cerrar y el `newCashBudget`
+      del wizard ya viene neto de apartados, el snapshot se fija en
+      `newCashBudget + totalApartadosCash` (y equivalente tarjeta) para que el pool libre
+      derivado sea exactamente `newCashBudget`. Sin regresión de saldo ni doble resta.
+    - `handleConfirmReset` y el `catch` de carga: quitados los `setCashBudget/setCardBudget`;
+      el fallback fija snapshots (cash=0, card=`DEFAULT_BUDGET`).
+    - **Migración en la carga inicial:** el viejo "pool vivo" (`cobuy_budget_cash/card`) se
+      convierte a snapshot con `snapshot = pool − ingresos + apartados`, de modo que el pool
+      derivado reproduce exactamente lo que el usuario ya veía (idempotente una vez migrado).
+  - **`src/components/BudgetCard.tsx`:** el campo "Presupuesto Inicial" ahora muestra y
+    edita `initialCashBudget`/`initialCardBudget` (nuevos campos de `BudgetSummary`), no el
+    pool derivado. No se tocó el fix de B3 (`isRealOverspend`/`percentCommitted`).
+  - **`src/types.ts`:** `BudgetSummary` ganó `initialCashBudget`/`initialCardBudget`.
+  - **Verificación (`npm run repro:b1`):** las **3 corridas (control, with-edit-0,
+    with-edit-50) dan CERO divergencias en los 6 pasos**, incluido el día 4. Editar a $0
+    deja el pool en $400 (antes: $0, perdía $400) y a $50 lo deja en $450 — ingresos y
+    apartados preservados; ningún falso "Sobregirado". `REPRO_B1_REPORTE.md` ahora reporta
+    "✅ FIX B1/B2 VERIFICADO" (el `buildReport` del script se hizo adaptativo roto/arreglado).
+  - `npm run lint` y `npm run build` pasan sin errores. Sin commit/push todavía (a pedido).
+
+- **2026-07-01 (madrugada, cont.) — Prueba de migración de datos legacy.** Se creó
+  `scripts/repro-migracion.mjs` (`npm run repro:migracion`) para validar específicamente que
+  el fix no rompe a usuarios con datos del formato viejo (pool vivo en `cobuy_budget_cash/card`,
+  sin snapshot). Siembra legacy run-once (centinela `__migration_test_seeded` para que la
+  recarga NO re-siembre), carga, recarga y opera. **12/12 aserciones PASS**:
+  - Paso 2: el pool derivado tras migrar es **idéntico** al pool legacy (efectivo $850,
+    tarjeta $1000) — el usuario no ve cambiar ningún número. Snapshot reconstruido correcto
+    (efectivo $500, tarjeta $800 = pool − ingresos + apartados).
+  - Paso 3: tras **recargar** (simula reabrir la PWA), pool y snapshot **estables** — la
+    migración es idempotente (re-deriva pero converge porque el pool persistido ya refleja
+    ingresos/apartados). El centinela confirma que no hubo re-sembrado en la recarga.
+  - Paso 4: tras editar el inicial a $600 el pool = $950 (600+400−50); un ingreso posterior
+    +$100 → $1050 (no se pierde); un apartado posterior −$30 → $1020; el snapshot editado
+    ($600) se mantiene como fuente de verdad.
+  - Reporte: `REPRO_MIGRACION_REPORTE.md` → "✅ MIGRACIÓN CORRECTA". El script sale con código
+    ≠ 0 si alguna aserción falla (para CI/pre-commit).
+
+- **2026-07-01 (madrugada, cont. 2) — Guard de migración explícito + bug de StrictMode.**
+  Se detectó un riesgo real (reportado por el usuario): sin un guard, la fórmula de migración
+  se recalculaba en cada carga desde las claves legacy `cobuy_budget_cash/card` + los
+  ingresos/apartados ACTUALES; una edición posterior del inicial podía perderse en la
+  siguiente recarga. Cambios en `src/App.tsx`:
+  - **Guard explícito:** si `cobuy_initial_cash_snapshot` **y** `cobuy_initial_card_snapshot`
+    ya existen → "ya migrado": se leen directo y **nunca** se recalcula desde las claves legacy.
+    Las lecturas de las claves legacy se movieron DENTRO de la rama de migración (no se leen
+    una vez migrado).
+  - **Borrado de claves legacy** al migrar (`removeItem` de `cobuy_budget_cash`,
+    `cobuy_budget_card`, `cobuy_total_budget`) — sin ambigüedad futura.
+  - **El pool ya NO se persiste**: se eliminó el effect que escribía `cobuy_budget_cash/card`
+    (re-crearlas reabriría el riesgo). El pool vive solo en memoria (useMemo); la fuente de
+    verdad persistida es el snapshot.
+  - **Bug de `<StrictMode>` encontrado y corregido:** la doble invocación del effect de carga
+    en dev hacía que la 1ª corrida migrara y borrara la clave legacy, y la 2ª re-migrara desde
+    cero (snapshot efectivo quedaba en −$350). Fix: en la rama de migración se persiste el
+    snapshot en `localStorage` **sincrónicamente** (además del `setState`), de modo que la 2ª
+    invocación ya ve el snapshot y entra por la rama "ya migrado". Sin este fix el paso 2 fallaba.
+  - **Scripts:** `readState`/`readCobuyState` de ambos repros ahora **derivan** el pool del
+    snapshot (ya no leen la clave legacy `cobuy_budget_cash`, que dejó de persistirse).
+  - **`repro-migracion.mjs` extendido (paso 5):** (5a) recarga real tras editar el inicial a
+    $600 → snapshot sigue $600 y pool $1020 (la edición NO se pierde); (5b) adversarial: se
+    inyecta un `cobuy_budget_cash=99999` stale y se recarga → la app lo **ignora** (snapshot
+    sigue $600, pool $1020), probando que no hay recálculo desde legacy una vez migrado.
+  - **Verificación:** `npm run repro:migracion` **15/15 PASS** ("✅ MIGRACIÓN CORRECTA"),
+    `npm run repro:b1` sigue "✅ FIX B1/B2 VERIFICADO", `npm run lint` y `npm run build` OK.
+
 ---
 
 ## Decisiones tomadas
 
 - (2026-07-01) Análisis en modo solo-lectura por instrucción del usuario. No se aplicó
   ningún fix.
-- _Pendiente de decidir:_ ¿Se prefiere un fix quirúrgico (mostrar/editar el snapshot y
-  derivar el pool) o el refactor estructural completo del ledger (Paso 4)? Registrar la
-  respuesta aquí para no repreguntar.
+- (2026-07-01) **Fix quirúrgico elegido sobre refactor total.** Se implementó el modelo
+  derivado por `useMemo` con el snapshot como fuente de verdad (Paso 1), sin migrar aún al
+  hook `useBudget` completo ni al ledger unificado (Paso 4 / B5, siguen pendientes). Cierra
+  la pregunta "quirúrgico vs estructural": por ahora, quirúrgico.
+- (2026-07-01) **Diseño del cierre de mes con pool derivado:** los apartados PERSISTEN al
+  cerrar y el `newCashBudget` del wizard ya viene neto de apartados. Decisión: el snapshot
+  del nuevo mes = `newCashBudget + totalApartados`, para que el pool libre derivado sea
+  exactamente `newCashBudget` (preserva el comportamiento previo y el patrimonio neto). No
+  re-preguntar; si se cambia, revisar `handleConfirmCloseMonth`.
+- (2026-07-01) **Migración de datos existentes (diseño DEFINITIVO con guard):** la migración
+  `snapshot = pool_viejo − ingresos + apartados` corre **una sola vez**, gobernada por un guard
+  explícito: la presencia de `cobuy_initial_cash_snapshot` **y** `cobuy_initial_card_snapshot`
+  es la única condición de "ya migrado". Una vez migrado NO se vuelve a leer ni recalcular desde
+  las claves legacy (que además se borran al migrar). Prioriza **preservar el estado visible
+  actual** del usuario por sobre "sanar" saldos ya corrompidos (verá lo mismo que antes hasta
+  re-editar su inicial, que ahora funciona bien). El snapshot se persiste **sincrónicamente**
+  en la rama de migración para ser seguro ante la doble invocación de `<StrictMode>`. No
+  re-preguntar; si se cambia, revisar el guard en el `useEffect` de carga de `App.tsx`.
