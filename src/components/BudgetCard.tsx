@@ -300,31 +300,35 @@ export default function BudgetCard({
   const percentSpent = totalBudget > 0 ? Math.min(100, Math.round((spent / totalBudget) * 100)) : 0;
   const percentPlanned = totalBudget > 0 ? Math.min(100, Math.round((planned / totalBudget) * 100)) : 0;
   const totalAllocated = spent + planned;
-  const percentTotal = totalBudget > 0 ? Math.min(100, Math.round((totalAllocated / totalBudget) * 100)) : 0;
+  // "Comprometido": spent+planned contra el presupuesto BRUTO (antes de apartados).
+  // Separado de sobregiro real para no disparar la alerta roja solo por planificar (ver B3).
+  const percentCommitted = realTotalBudget > 0 ? Math.min(100, Math.round((totalAllocated / realTotalBudget) * 100)) : 0;
   const remainingCash = cashBudget - cashSpent;
   const remainingCard = cardBudget - cardSpent;
+  // Sobregiro real: el gasto efectivo ya superó lo disponible en ese pool (no lo planificado)
+  const isRealOverspend = remainingCash < 0 || remainingCard < 0;
 
   const getContainerStyle = () => {
-    if (percentTotal >= 100) return 'border-2 border-rose-500 shadow-xl shadow-rose-50/50 ring-4 ring-rose-100 bg-rose-50/5 transition-all duration-300';
-    if (percentTotal >= 80) return 'border-2 border-amber-500 shadow-xl shadow-amber-50/50 ring-4 ring-amber-100 bg-amber-50/5 transition-all duration-300';
+    if (isRealOverspend) return 'border-2 border-rose-500 shadow-xl shadow-rose-50/50 ring-4 ring-rose-100 bg-rose-50/5 transition-all duration-300';
+    if (percentCommitted >= 80) return 'border-2 border-amber-500 shadow-xl shadow-amber-50/50 ring-4 ring-amber-100 bg-amber-50/5 transition-all duration-300';
     return 'border border-slate-200/85 hover:shadow-md transition-all duration-300';
   };
 
   return (
     <div className={`glass-card rounded-3xl overflow-hidden ${getContainerStyle()}`} id="budget-card-container">
       {/* Smart-Cap Budget threshold alerts */}
-      {percentTotal >= 100 && (
+      {isRealOverspend && (
         <div className="bg-gradient-to-r from-rose-500 to-red-600 text-white px-6 py-2.5 flex items-center justify-between text-xs font-black tracking-wide animate-pulse">
           <span className="flex items-center gap-2">
-            <span>🚨</span> ¡PRESUPUESTO EXCEDIDO! Revisa tus planes y compras pendientes.
+            <span>🚨</span> ¡CAPITAL SOBREGIRADO! Ya gastaste más de lo disponible en efectivo o tarjeta.
           </span>
           <span className="bg-rose-700/80 px-2 py-0.5 rounded text-[10px]">Alerta Crítica</span>
         </div>
       )}
-      {percentTotal >= 80 && percentTotal < 100 && (
+      {!isRealOverspend && percentCommitted >= 80 && (
         <div className="bg-gradient-to-r from-amber-400 to-amber-500 text-slate-900 px-6 py-2.5 flex items-center justify-between text-xs font-black tracking-wide">
           <span className="flex items-center gap-2">
-            <span>⚠️</span> ADVERTENCIA: Has comprometido más del 80% de tu presupuesto.
+            <span>⚠️</span> ADVERTENCIA: Has comprometido más del 80% de tu presupuesto (gastado + planificado).
           </span>
           <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px]">Alerta Preventiva</span>
         </div>
@@ -407,14 +411,14 @@ export default function BudgetCard({
             <div className="flex flex-col lg:items-end gap-1">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Compromiso Financiero</span>
               <div className="flex items-center gap-1 mt-1">
-                <span className={`text-sm sm:text-base font-black ${percentTotal >= 100 ? 'text-rose-600' : percentTotal >= 80 ? 'text-amber-600' : 'text-slate-800'
+                <span className={`text-sm sm:text-base font-black ${percentCommitted >= 100 ? 'text-rose-600' : percentCommitted >= 80 ? 'text-amber-600' : 'text-slate-800'
                   }`}>
-                  {percentTotal}%
+                  {percentCommitted}%
                 </span>
                 <span className="text-[11px] text-slate-400 font-semibold ml-1">presupuesto comprometido</span>
               </div>
               <p className="text-[9px] text-slate-450 font-bold leading-none mt-0.5">
-                ${totalAllocated.toLocaleString('es-ES', { maximumFractionDigits: 0 })} asignado de ${totalBudget.toLocaleString('es-ES', { maximumFractionDigits: 0 })}
+                ${totalAllocated.toLocaleString('es-ES', { maximumFractionDigits: 0 })} asignado de ${realTotalBudget.toLocaleString('es-ES', { maximumFractionDigits: 0 })}
               </p>
             </div>
 
@@ -659,13 +663,13 @@ export default function BudgetCard({
         {/* Dynamic Multi-segment progress bar */}
         <div className="mt-7 w-full bg-slate-200 h-3 rounded-full overflow-hidden flex shadow-inner" id="budget-progress-bar">
           <div
-            className={`h-full transition-all duration-500 ease-out ${percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+            className={`h-full transition-all duration-500 ease-out ${isRealOverspend ? 'bg-rose-500' : percentCommitted >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
               }`}
             style={{ width: `${percentSpent}%` }}
             title={`Comprado: ${percentSpent}%`}
           />
           <div
-            className={`h-full transition-all duration-500 ease-out ${percentTotal >= 100 ? 'bg-rose-450' : 'bg-amber-400'
+            className={`h-full transition-all duration-500 ease-out ${isRealOverspend ? 'bg-rose-450' : 'bg-amber-400'
               }`}
             style={{ width: `${percentPlanned}%` }}
             title={`Planificado: ${percentPlanned}%`}
@@ -676,12 +680,12 @@ export default function BudgetCard({
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mt-3.5 text-xs text-slate-600 px-0.5 font-semibold">
           <div className="flex flex-wrap items-center gap-3.5">
             <span className="flex items-center gap-1.5">
-              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${percentTotal >= 100 ? 'bg-rose-500' : percentTotal >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${isRealOverspend ? 'bg-rose-500' : percentCommitted >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
                 }`}></span>
               Comprado ({percentSpent}%)
             </span>
             <span className="flex items-center gap-1.5">
-              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${percentTotal >= 100 ? 'bg-rose-400' : 'bg-amber-400'
+              <span className={`w-3 h-3 rounded-full inline-block shrink-0 ${isRealOverspend ? 'bg-rose-400' : 'bg-amber-400'
                 }`}></span>
               Planificado ({percentPlanned}%)
             </span>
