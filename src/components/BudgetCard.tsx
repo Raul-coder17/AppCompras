@@ -309,6 +309,13 @@ export default function BudgetCard({
   // Sobregiro real: el gasto efectivo ya superó lo disponible en ese pool (no lo planificado)
   const isRealOverspend = remainingCash < 0 || remainingCard < 0;
 
+  // Patrimonio NETO real (B7): disponible libre de ambos bolsillos (ya restados los gastos) +
+  // lo reservado en apartados. NO usar realTotalBudget aquí: ese es el BRUTO (inicial+ingresos,
+  // sin restar gastos) que existe solo como denominador de percentCommitted (B3). Reutilizarlo
+  // como "Capital Neto" ignoraba lo gastado (mostraba $2200 con Tarjeta ya en −$200).
+  const netAvailable = remainingCash + remainingCard; // libre disponible (== remaining)
+  const netWorth = netAvailable + totalApartados;
+
   const getContainerStyle = () => {
     if (isRealOverspend) return 'border-2 border-rose-500 shadow-xl shadow-rose-50/50 ring-4 ring-rose-100 bg-rose-50/5 transition-all duration-300';
     if (percentCommitted >= 80) return 'border-2 border-amber-500 shadow-xl shadow-amber-50/50 ring-4 ring-amber-100 bg-amber-50/5 transition-all duration-300';
@@ -351,8 +358,8 @@ export default function BudgetCard({
             </div>
 
             <div className="flex items-baseline gap-2 mt-1">
-              <h2 className="text-3.5xl sm:text-4xl lg:text-4.5xl font-black tracking-tight text-slate-900 leading-none">
-                ${realTotalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <h2 className={`text-3.5xl sm:text-4xl lg:text-4.5xl font-black tracking-tight leading-none ${netWorth < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                ${netWorth.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h2>
               <span className="text-xs text-slate-400 font-semibold">(MXN)</span>
             </div>
@@ -363,14 +370,19 @@ export default function BudgetCard({
 
             {totalApartados > 0 ? (
               <div className="flex items-center gap-2 mt-3 bg-white border border-slate-200/60 p-2 rounded-2xl shadow-2xs w-fit animate-in fade-in duration-200">
-                <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 rounded-xl border border-emerald-100/50 text-[10px] sm:text-xs font-extrabold text-emerald-700">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                  <span>Libre: ${totalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                <div className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] sm:text-xs font-extrabold ${netAvailable < 0 ? 'bg-rose-50 border-rose-100/50 text-rose-700' : 'bg-emerald-50 border-emerald-100/50 text-emerald-700'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full animate-ping ${netAvailable < 0 ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                  <span>Libre: ${netAvailable.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                 </div>
                 <span className="text-slate-300 font-light text-xs">|</span>
                 <div className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 rounded-xl border border-indigo-100/50 text-[10px] sm:text-xs font-extrabold text-indigo-700">
                   <span>🔒 Apartado: ${totalApartados.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                 </div>
+              </div>
+            ) : isRealOverspend ? (
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 rounded-xl border border-rose-100/50 text-[10px] sm:text-xs font-extrabold text-rose-700">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                <span>Sobregiro en uno de tus bolsillos</span>
               </div>
             ) : (
               <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 rounded-xl border border-emerald-100/50 text-[10px] sm:text-xs font-extrabold text-emerald-750">
@@ -387,10 +399,13 @@ export default function BudgetCard({
             <div className="flex flex-col lg:items-end gap-1">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Estado del Capital</span>
               <div className="mt-1">
-                {remaining < 0 ? (
+                {isRealOverspend ? (
+                  // B7: usar la MISMA señal que el banner rojo (isRealOverspend) para no
+                  // contradecirlo. Antes usaba `remaining` (agregado), que compensaba el
+                  // superávit de un bolsillo contra el sobregiro de otro y mostraba "sano".
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm shadow-rose-100 border border-rose-600">
                     <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
-                    🚨 Límite Excedido
+                    🚨 Capital Sobregirado
                   </span>
                 ) : remaining === 0 ? (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm shadow-amber-100 border border-amber-600">

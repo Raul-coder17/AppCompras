@@ -132,6 +132,7 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
 | B4 | `cashSpent`/`cardSpent` suman ítems `bought` sin filtrar por mes (servicios sí se filtran). | `App.tsx:1357` vs `:1363-1366` | Media/Baja | Pendiente |
 | B5 | Asimetría del ledger: ingresos/apartados mutan el pool, gastos no. Terreno de raíz de todo lo anterior. | `App.tsx:460-497` vs `BudgetCard.tsx:304-305` | Media (estructural) | **Resuelto (2026-07-01)** — el refactor B1/B2 eliminó TODA mutación imperativa del pool (grep de `setCashBudget`/`setCardBudget` = 0); ahora pool y restante son 100% derivados (`snapshot + ingresos − apartados`, y `remaining = pool − spent`). La clase "doble conteo / pérdida de saldo" que B5 marcaba como raíz queda cerrada. Nota: el filtro por mes de `spent` (B4) es un tema aparte, aún Pendiente; no reabre B5. |
 | B6 | Regresión del fix B1/B2 en la capa de IA: `add_budget_funds` sumaba sobre el pool derivado y lo escribía en el snapshot → doble conteo de ingresos/apartados. `set_budget` con descripción/copy engañosos ("total exacto"). | `AIAssistant.tsx:1472-1489` (executores), `:776-786` (tool def) | Alta (efectivo cuando hay ingresos/apartados) | **Resuelto (2026-07-01)** |
+| B7 | "Capital Neto Acumulado" muestra `realTotalBudget` (bruto = inicial+ingresos, ignora lo gastado) y la etiqueta "Estado del Capital" usa el `remaining` agregado en vez de `isRealOverspend` → con Tarjeta en −$200 mostraba $2200 y "CAPITAL SANO" verde debajo del banner rojo. Detectado en el simulacro manual (captura real). | `BudgetCard.tsx:355` (número), `:390` (etiqueta), `:299/:306` (var compartida con B3) | Media-Alta (contradice al banner; engaña sobre el patrimonio real) | **Resuelto (2026-07-01)** |
 
 ---
 
@@ -337,6 +338,40 @@ nacen las falsas alertas. Hay **dos alertas distintas** y cada una tiene su caus
     `src/vite-env.d.ts` (`/// <reference types="vite/client" />`) para tipar `import.meta.env`,
     ya que `tsconfig` limita `types` a `vite-plugin-pwa/client`. El repro corre contra dev
     (DEV=true), así que no necesita ningún flag.
+
+- **2026-07-01 (madrugada, cont. 4) — B7: "Capital Neto Acumulado" y "Estado del Capital"
+  ignoraban el sobregiro.** Encontrado en el simulacro manual de 15 días (con captura real):
+  tras importar el CSV (Tarjeta en −$200 real), el número grande mostraba **$2200** y la
+  etiqueta seguía en verde **"CAPITAL SANO"**, justo debajo del banner rojo "¡CAPITAL
+  SOBREGIRADO!".
+  - **Causa raíz (confirmada con código):** (1) el número grande mostraba `realTotalBudget`
+    (`BudgetCard.tsx:355`), que es `totalBudget + totalApartados = inicial + ingresos` (el BRUTO
+    que existe solo como denominador de `percentCommitted` en B3) — **ignora `spent`**:
+    500+1000+700 = 2200. (2) la etiqueta "Estado del Capital" (`:390`) usaba el `remaining`
+    AGREGADO ($300 > 0, porque el superávit de Efectivo compensa el déficit de Tarjeta), en vez
+    de `isRealOverspend` (la señal por-bolsillo que dispara el banner) → decía "sano".
+  - **Fix (en `BudgetCard.tsx`, sin tocar `realTotalBudget`/`percentCommitted` de B3):**
+    - Nueva var `netWorth = remainingCash + remainingCard + totalApartados` (patrimonio neto
+      real). El número grande usa `netWorth` (rojo si < 0). En el simulacro da **$300**.
+    - La etiqueta "Estado del Capital" ahora se basa en `isRealOverspend` → si hay sobregiro
+      real muestra "🚨 Capital Sobregirado" (consistente con el banner), en vez de "sano".
+    - **Consistencia del mismo bloque (me aparté levemente del alcance, avisado):** el desglose
+      "Libre" pasó a mostrar `netAvailable = remainingCash + remainingCard` (para que Libre +
+      Apartado sumen el neto) y el texto estático "Todo el capital está libre" ahora muestra un
+      aviso de sobregiro cuando `isRealOverspend`. No se tocó la tarjeta agregada "Capital
+      Restante" de abajo (`:730+`), que ya mostraba el agregado correcto ($300).
+  - **Prueba nueva (a nivel DOM, porque es bug de display):** `scripts/repro-b7-networth.mjs`
+    (`npm run repro:b7`) reproduce el caso y lee el DOM renderizado. **11/11 PASS** en dos
+    escenarios:
+    - **A (sin apartados):** el número grande muestra $300 (no $2200), la etiqueta dice "CAPITAL
+      SOBREGIRADO" (no "sano"), y el banner rojo está presente.
+    - **B (con apartado $100 en efectivo):** Capital Neto = remainingCash $400 + remainingCard
+      −$200 + apartado $100 = **$300 exacto** — el apartado NO se pierde ($200) ni se cuenta doble
+      ($400); el desglose muestra "Libre: $200 | Apartado: $100" (suman el neto) y la etiqueta
+      sigue indicando sobregiro.
+  - **Verificación completa:** `repro:b7` 11/11, y `repro:b1` / `repro:migracion` /
+    `repro:ai-budget` siguen en verde (sin regresión de B3, que no se tocó). `npm run lint` y
+    `npm run build` OK.
 
 ---
 

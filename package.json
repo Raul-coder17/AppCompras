@@ -11,7 +11,8 @@
     "lint": "tsc --noEmit",
     "repro:b1": "node scripts/repro-b1-capital-bug.mjs",
     "repro:migracion": "node scripts/repro-migracion.mjs",
-    "repro:ai-budget": "node scripts/repro-ai-budget.mjs"
+    "repro:ai-budget": "node scripts/repro-ai-budget.mjs",
+    "repro:b7": "node scripts/repro-b7-networth.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
